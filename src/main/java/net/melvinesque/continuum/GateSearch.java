@@ -71,8 +71,20 @@ class GateSearch {
 					player.equals(event.getPlayer()) &&
 					IgniteCause.FLINT_AND_STEEL.equals(event.getCause())
 				) {
-					if (search(fire, player)) {
-						event.setCancelled(true);
+					List<Block> inside = new ArrayList<Block>();
+					List<Block> outside = new ArrayList<Block>();
+					if (search(fire, player, inside, outside)) {
+						BlockFace face = facing(outside, player);
+						player.sendMessage("facing: " + face.name());
+						if (
+							face.equals(BlockFace.NORTH) ||
+							face.equals(BlockFace.SOUTH) ||
+							face.equals(BlockFace.EAST) ||
+							face.equals(BlockFace.WEST)
+						) {
+							// create the gate!
+							event.setCancelled(true);
+						}
 					}
 				}
 				fire = null;
@@ -89,16 +101,49 @@ class GateSearch {
 		plugin = null;
 	}
 	
+	BlockFace facing(List<Block> outside, Player player) {
+		double minX = Double.POSITIVE_INFINITY;
+		double minY = Double.POSITIVE_INFINITY;
+		double minZ = Double.POSITIVE_INFINITY;
+		double maxX = Double.NEGATIVE_INFINITY;
+		double maxY = Double.NEGATIVE_INFINITY;
+		double maxZ = Double.NEGATIVE_INFINITY;
+		double x, y, z;
+		Location l;
+		for (Block b : outside) {
+			l = b.getLocation();
+			x = l.getX();
+			y = l.getY();
+			z = l.getZ();
+			minX = Math.min(minX, x);
+			maxX = Math.max(maxX, x);
+			minY = Math.min(minY, y);
+			maxY = Math.max(maxY, y);
+			minZ = Math.min(minZ, z);
+			maxZ = Math.max(maxZ, z);
+		}
+		player.sendMessage("min/max x: " + minX + ".." + maxX + " y: " + minY + ".." + maxY + " z: " + minZ + ".." + maxZ);
+		l = new Location(player.getWorld(), maxX - ((maxX - minX) / 2), maxY - ((maxY - minY) / 2), maxZ - ((maxZ - minZ) / 2));
+		player.sendMessage("center: " + l.getX() + " " + l.getY() + " " + l.getZ());
+		l = player.getLocation();
+		if (minX == maxX) {
+			return l.getX() - .5 < minX ? BlockFace.NORTH : BlockFace.SOUTH;
+		} else if (minY == maxY) {
+			return l.getY() - .5 < minY ? BlockFace.DOWN : BlockFace.UP;
+		} else if (minZ == maxZ) {
+			return l.getZ() - .5 < minZ ? BlockFace.EAST : BlockFace.WEST;
+		} else {
+			return BlockFace.SELF;
+		}
+	}
+
 	/**
-	 * @todo determine facing of the gate based on player facing
 	 * @param burning Block set ablaze to begin traversal.
 	 * @param player Player that started the fire.
 	 */
-	boolean search(Block burning, Player player) {
+	boolean search(Block burning, Player player, List<Block> inside, List<Block> outside) {
 		Block keystone = burning.getFace(BlockFace.DOWN);
 		Location fire = burning.getLocation();
-		List<Block> border = new ArrayList<Block>();
-		List<Block> inside = new ArrayList<Block>();
 		List<Vector> horizontals = new ArrayList<Vector>();
 		Vector vertical = new Vector(0, 1, 0);
 		float yaw = player.getLocation().getYaw();
@@ -107,6 +152,7 @@ class GateSearch {
 		}
 		// 0 = W, 90 = N, 180 = E, 270 = S
 		// determine most likely orientation based on player facing
+		player.sendMessage("yaw: " + yaw);
 		if ((yaw >= 45 && yaw <= 135) || (yaw >= 225 && yaw <= 315)) {
 			horizontals.add(new Vector(0, 0, 1));
 			horizontals.add(new Vector(1, 0, 0));
@@ -116,12 +162,11 @@ class GateSearch {
 		}
 		if (isKeystone(keystone) && isInside(burning)) {
 			for (Vector horizontal : horizontals) {
-				border.clear();
 				inside.clear();
-				border.add(keystone);
+				outside.clear();
 				inside.add(burning);
-				if (search(fire, fire, border, inside, 0, horizontal, vertical)) {
-					player.sendMessage("thars a gate!");
+				outside.add(keystone);
+				if (search(fire, fire, inside, outside, horizontal, vertical, 0)) {
 					return true;
 				}
 			}
@@ -129,16 +174,16 @@ class GateSearch {
 		return false;
 	}
 
-	boolean search(Location fire, Location current, List<Block> border, List<Block> inside, int depth, Vector horizontal, Vector vertical) {
+	boolean search(Location fire, Location current, List<Block> inside, List<Block> outside, Vector horizontal, Vector vertical, int depth) {
 		if (depth > DEPTH) {
-			log.info("Max search depth (" + DEPTH + ") exceeded");
+			player.sendMessage("Max search depth (" + DEPTH + ") exceeded");
 			return false;
 		}
 		if (current.distance(fire) > RADIUS) {
-			log.info("Max search radius (" + RADIUS + ") exceeded");
+			player.sendMessage("Max search radius (" + RADIUS + ") exceeded");
 			return false;
 		}
-		List<Location> search = new ArrayList<Location>();
+		List<Location> interests = new ArrayList<Location>();
 		World world = current.getWorld();
 		Block block;
 		for (int x = -1; x <= 1; x++) {
@@ -151,23 +196,23 @@ class GateSearch {
 				                                .add(new Vector(x, x, x).multiply(horizontal))
 				                                .add(new Vector(y, y, y).multiply(vertical))
 				                                .toLocation(world));
-				if (border.contains(block) || inside.contains(block)) {
+				if (inside.contains(block) || outside.contains(block)) {
 					// don't revisit blocks we've already seen
 					continue;
-				} else if (isBorder(block)) {
-					border.add(block);
 				} else if (isInside(block)) {
-					search.add(block.getLocation());
+					interests.add(block.getLocation());
 					inside.add(block);
+				} else if (isOutside(block)) {
+					outside.add(block);
 				} else {
-					// not a border or filing block, so this invalidates the search
+					// not an outside or inside block, invalidate search
 					return false;
 				}
 			}
 		}
-		for (Location next : search) {
+		for (Location next : interests) {
 			depth++;
-			if (!search(fire, next, border, inside, depth, horizontal, vertical)) {
+			if (!search(fire, next, inside, outside, horizontal, vertical, depth)) {
 				return false;
 			}
 			depth--;
@@ -175,16 +220,22 @@ class GateSearch {
 		return true;
 	}
 
-	boolean isBorder(Block block) {
-		return !block.getType().equals(Material.AIR);
-	}
-
 	boolean isInside(Block block) {
 		return block.getType().equals(Material.AIR);
 	}
 
-	boolean isKeystone(Block block) {
-		return block.getType().equals(Material.COBBLESTONE) || block.getType().equals(Material.DIAMOND_BLOCK) || block.getType().equals(Material.GOLD_BLOCK);
+	boolean isOutside(Block block) {
+		return !block.getType().equals(Material.AIR);
 	}
-	
+
+	boolean isKeystone(Block block) {
+		Material m = block.getType();
+		return (
+			m.equals(Material.COBBLESTONE) ||
+			m.equals(Material.DIAMOND_BLOCK) ||
+			m.equals(Material.GOLD_BLOCK) ||
+			m.equals(Material.NETHERRACK)
+		);
+	}
+
 }
