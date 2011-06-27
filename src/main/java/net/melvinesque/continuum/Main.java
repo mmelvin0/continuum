@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Logger;
 
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
@@ -65,15 +66,18 @@ public class Main extends JavaPlugin {
 			public void onBlockIgnite(BlockIgniteEvent event) {
 				if (
 					fire != null && player != null && !event.isCancelled() &&
-					player.equals(event.getPlayer()) && 
+					fire.equals(event.getBlock()) &&
+					player.equals(event.getPlayer()) &&
 					IgniteCause.FLINT_AND_STEEL.equals(event.getCause())
 				) {
-					traverse(fire, player);
+					if (traverse(fire, player)) {
+						event.setCancelled(true);
+					}
 				}
 				fire = null;
 				player = null;
 			}
-		}, Priority.Monitor, this);
+		}, Priority.Highest, this);
 		log.info(getDescription().getFullName() + " enabled");
 	}
 
@@ -82,79 +86,84 @@ public class Main extends JavaPlugin {
 	}
 
 	/**
-	 * @todo Decide which direction to traverse first based on direction player is facing.
-	 * @param fire Block set ablaze to begin traversal.
+	 * @todo determine facing of the gate based on player facing
+	 * @param burning Block set ablaze to begin traversal.
 	 * @param player Player that started the fire.
 	 */
-	void traverse(Block fire, Player player) {
-		player.sendMessage("yaw: " + player.getLocation().getYaw());
-		List<Block> rim = new ArrayList<Block>();
-		List<Block> air = new ArrayList<Block>();
-		Block keystone = fire.getFace(BlockFace.DOWN);
-		if (isKeystone(keystone) && isInside(fire)) {
-			rim.add(keystone);
-			air.add(fire);
-			if (traverse(fire, fire, rim, air, 0, false)) {
-				player.sendMessage("yup");
-			} else {
-				rim.clear();
-				air.clear();
-				rim.add(keystone);
-				air.add(fire);
-				if (traverse(fire, fire, rim, air, 0, true)) {
-					player.sendMessage("yup");
-				} else {
-					player.sendMessage("nope");
+	boolean traverse(Block burning, Player player) {
+		Block keystone = burning.getFace(BlockFace.DOWN);
+		Location fire = burning.getLocation();
+		List<Block> border = new ArrayList<Block>();
+		List<Block> inside = new ArrayList<Block>();
+		List<Vector> horizontals = new ArrayList<Vector>();
+		Vector vertical = new Vector(0, 1, 0);
+		float yaw = player.getLocation().getYaw();
+		if (yaw < 0) {
+			yaw += 360;
+		}
+		// 0 = W, 90 = N, 180 = E, 270 = S
+		// determine most likely orientation based on player facing
+		if ((yaw >= 45 && yaw <= 135) || (yaw >= 225 && yaw <= 315)) {
+			horizontals.add(new Vector(0, 0, 1));
+			horizontals.add(new Vector(1, 0, 0));
+		} else {
+			horizontals.add(new Vector(1, 0, 0));
+			horizontals.add(new Vector(0, 0, 1));
+		}
+		if (isKeystone(keystone) && isInside(burning)) {
+			for (Vector horizontal : horizontals) {
+				border.clear();
+				inside.clear();
+				border.add(keystone);
+				inside.add(burning);
+				if (traverse(fire, fire, border, inside, 0, horizontal, vertical)) {
+					player.sendMessage("thars a gate!");
+					return true;
 				}
 			}
 		}
+		return false;
 	}
 
-	/**
-	 * @todo Change swap parameter to a pair of vectors describing horizontal and vertical directions.
-	 * @param fire Block from which the traversal began. isInside(first) must be true!
-	 * @param block Block to traverse. isInside(current) must be true!
-	 * @param rim Known border blocks.
-	 * @param air Known inside blocks.
-	 * @param depth Current recursion depth.
-	 * @param swap Whether to swap x and z (change horizontal direction).
-	 * @return Whether the shape is valid.
-	 */
-	boolean traverse(Block fire, Block block, List<Block> rim, List<Block> air, int depth, boolean swap) {
+	boolean traverse(Location fire, Location current, List<Block> border, List<Block> inside, int depth, Vector horizontal, Vector vertical) {
 		if (depth > DEPTH) {
-//			log.info("Max search depth (" + DEPTH + ") exceeded");
+			log.info("Max search depth (" + DEPTH + ") exceeded");
 			return false;
 		}
-		if (block.getLocation().distance(fire.getLocation()) > RADIUS) {
-//			log.info("Max search radius (" + RADIUS + ") exceeded");
+		if (current.distance(fire) > RADIUS) {
+			log.info("Max search radius (" + RADIUS + ") exceeded");
 			return false;
 		}
-		World world = block.getWorld();
-		List<Block> interests = new ArrayList<Block>();
+		List<Location> search = new ArrayList<Location>();
+		World world = current.getWorld();
+		Block block;
 		for (int x = -1; x <= 1; x++) {
 			for (int y = -1; y <= 1; y++) {
 				// don't traverse diagonally
 				if (Math.abs(x) == Math.abs(y)) {
 					continue;
 				}
-				Block next = world.getBlockAt(block.getLocation().toVector().add(new Vector(swap ? 0 : x, y, swap ? x : 0)).toLocation(world));
-				if (air.contains(next) || rim.contains(next)) {
+				block = world.getBlockAt(current.toVector()
+				                                .add(new Vector(x, x, x).multiply(horizontal))
+				                                .add(new Vector(y, y, y).multiply(vertical))
+				                                .toLocation(world));
+				if (border.contains(block) || inside.contains(block)) {
 					// don't revisit blocks we've already seen
 					continue;
-				} else if (isBorder(next)) {
-					rim.add(next);
-				} else if (isInside(next)) {
-					interests.add(next);
-					air.add(next);
+				} else if (isBorder(block)) {
+					border.add(block);
+				} else if (isInside(block)) {
+					search.add(block.getLocation());
+					inside.add(block);
 				} else {
-					// not a border or inside block, so this invalidates the search
+					// not a border or filing block, so this invalidates the search
 					return false;
 				}
 			}
 		}
-		for (Block interest : interests) {
+		for (Location next : search) {
 			depth++;
-			if (!traverse(fire, interest, rim, air, depth, swap)) {
+			if (!traverse(fire, next, border, inside, depth, horizontal, vertical)) {
 				return false;
 			}
 			depth--;
@@ -171,7 +180,7 @@ public class Main extends JavaPlugin {
 	}
 
 	boolean isKeystone(Block block) {
-		return block.getType().equals(Material.COBBLESTONE);
+		return block.getType().equals(Material.COBBLESTONE) || block.getType().equals(Material.DIAMOND_BLOCK) || block.getType().equals(Material.GOLD_BLOCK);
 	}
 
 }
