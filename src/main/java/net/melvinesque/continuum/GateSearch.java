@@ -53,15 +53,18 @@ class GateSearch {
 					Material.FLINT_AND_STEEL.equals(item.getType()) &&
 					Action.RIGHT_CLICK_BLOCK.equals(event.getAction())
 				) {
-					// interested in fire started by player until next server tick
-					fire = event.getClickedBlock().getFace(BlockFace.UP);
-					player = event.getPlayer();
-					scheduler.scheduleSyncDelayedTask(plugin, new Runnable() {
-						public void run() {
-							fire = null;
-							player = null;
-						}
-					});
+					Block block = event.getClickedBlock();
+					if (gates.getGateAt(block.getLocation()) == null) {
+						// interested in fire started by player until next server tick
+						fire = block.getFace(BlockFace.UP);
+						player = event.getPlayer();
+						scheduler.scheduleSyncDelayedTask(plugin, new Runnable() {
+							public void run() {
+								fire = null;
+								player = null;
+							}
+						});
+					}
 				}
 			}
 		}, Priority.Monitor, plugin);
@@ -84,7 +87,7 @@ class GateSearch {
 							face.equals(BlockFace.EAST) ||
 							face.equals(BlockFace.WEST)
 						) {
-							gates.add(new Gate(inside, outside, face), player);
+							gates.add(new Gate(fire.getWorld(), inside, outside, face), player);
 							event.setCancelled(true);
 						}
 					}
@@ -237,6 +240,7 @@ class GateSearch {
 			m.equals(Material.COBBLESTONE) ||
 			m.equals(Material.DIAMOND_BLOCK) ||
 			m.equals(Material.GOLD_BLOCK) ||
+			m.equals(Material.LOG) ||
 			m.equals(Material.NETHERRACK)
 		);
 	}
