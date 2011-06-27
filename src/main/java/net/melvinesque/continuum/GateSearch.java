@@ -30,6 +30,7 @@ class GateSearch {
 	
 	Logger log = Logger.getLogger("Minecraft");
 	BukkitScheduler scheduler;
+	GateManager gates;
 	PluginManager pm;
 	Main plugin;
 	Player player;
@@ -37,11 +38,12 @@ class GateSearch {
 	
 	GateSearch(Main main) {
 		plugin = main;
-		pm = plugin.getServer().getPluginManager();
-		scheduler = plugin.getServer().getScheduler();
 	}
 	
 	void enable() {
+		gates = plugin.getGateManager();
+		pm = plugin.getServer().getPluginManager();
+		scheduler = plugin.getServer().getScheduler();
 		pm.registerEvent(Type.PLAYER_INTERACT, new PlayerListener() {
 			public void onPlayerInteract(PlayerInteractEvent event) {
 				ItemStack item = event.getItem();
@@ -82,7 +84,7 @@ class GateSearch {
 							face.equals(BlockFace.EAST) ||
 							face.equals(BlockFace.WEST)
 						) {
-							// create the gate!
+							gates.add(new Gate(inside, outside, face), player);
 							event.setCancelled(true);
 						}
 					}
@@ -96,6 +98,7 @@ class GateSearch {
 	void disable() {
 		fire = null;
 		player = null;
+		gates = null;
 		pm = null;
 		scheduler = null;
 		plugin = null;
