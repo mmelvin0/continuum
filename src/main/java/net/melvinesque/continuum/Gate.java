@@ -11,6 +11,8 @@ public class Gate {
 
 	GateBlock blocks[][][];
 	BlockFace face;
+	String name;
+	String destination;
 	World world;
 	int minX;
 	int minY;
@@ -83,5 +85,30 @@ public class Gate {
 		}
 		return true;
 	}
+
+	boolean isOutside(Block block) {
+		Location l = block.getLocation();
+		int x = l.getBlockX(), y = l.getBlockY(), z = l.getBlockZ();
+		if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) {
+			return false;
+		}
+		return blocks[x - minX][y - minY][z - minZ] instanceof OutsideBlock;
+	}
+
+	String getName() {
+		return name == null ? "" : name;
+	}
+
+	void setName(String name) {
+		this.name = name;
+	}
 	
+	String getDestination() {
+		return destination;
+	}
+	
+	void setDestination(String destination) {
+		this.destination = destination;
+	}
+
 }
