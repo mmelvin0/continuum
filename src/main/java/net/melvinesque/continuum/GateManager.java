@@ -15,6 +15,7 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockBurnEvent;
 import org.bukkit.event.block.BlockEvent;
 import org.bukkit.event.block.BlockListener;
+import org.bukkit.event.block.BlockRedstoneEvent;
 import org.bukkit.event.block.SignChangeEvent;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.scheduler.BukkitScheduler;
@@ -22,7 +23,7 @@ import org.bukkit.scheduler.BukkitScheduler;
 public class GateManager {
 
 	List<Gate> gates = new ArrayList<Gate>();
-	Map<Gate,Check> checks = new HashMap<Gate,Check>();
+	Map<Gate, IntegrityCheck> integrity = new HashMap<Gate, IntegrityCheck>();
 	BukkitScheduler scheduler;
 	PluginManager pm;
 	Main plugin;
@@ -37,10 +38,13 @@ public class GateManager {
 		scheduler = plugin.getServer().getScheduler();
 		BlockListener listener = new BlockListener() {
 			public void onBlockBreak(BlockBreakEvent event) {
-				check(event, event);
+				integrity(event, event);
 			}
 			public void onBlockBurn(BlockBurnEvent event) {
-				check(event, event);
+				integrity(event, event);
+			}
+			public void onBlockRedstoneChange(BlockRedstoneEvent event) {
+				redstone(event);
 			}
 			public void onSignChange(SignChangeEvent event) {
 				sign(event);
@@ -48,6 +52,7 @@ public class GateManager {
 		};
 		pm.registerEvent(Type.BLOCK_BREAK, listener, Priority.Monitor, plugin);
 		pm.registerEvent(Type.BLOCK_BURN, listener, Priority.Monitor, plugin);
+		pm.registerEvent(Type.REDSTONE_CHANGE, listener, Priority.Monitor, plugin);
 		pm.registerEvent(Type.SIGN_CHANGE, listener, Priority.Monitor, plugin);
 	}
 
@@ -74,17 +79,17 @@ public class GateManager {
 		return null;
 	}
 	
-	void check(Cancellable c, BlockEvent b) {
+	void integrity(Cancellable c, BlockEvent b) {
 		if (c.isCancelled()) {
 			return;
 		}
 		Gate gate = getGateAt(b.getBlock().getLocation());
-		if (gate == null || checks.containsKey(gate)) {
+		if (gate == null || integrity.containsKey(gate)) {
 			return;
 		}
-		Check check = new Check(gate);
+		IntegrityCheck check = new IntegrityCheck(gate);
 		scheduler.scheduleSyncDelayedTask(plugin, check);
-		checks.put(gate, check);
+		integrity.put(gate, check);
 	}
 	
 	void config(Gate gate, String[] lines) {
@@ -112,6 +117,8 @@ public class GateManager {
 		return Integer.toString(gates.indexOf(gate)); 
 	}
 	
+	void redstone(BlockRedstoneEvent e) {}
+
 	void sign(SignChangeEvent e) {
 		Block sign = e.getBlock();
 		if (sign.getState() instanceof org.bukkit.block.Sign) {
@@ -127,11 +134,11 @@ public class GateManager {
 		}
 	}
 	
-	class Check implements Runnable {
+	class IntegrityCheck implements Runnable {
 
 		Gate gate;
 
-		Check(Gate gate) {
+		IntegrityCheck(Gate gate) {
 			this.gate = gate;
 		}
 
@@ -139,7 +146,7 @@ public class GateManager {
 			if (!gate.intact()) {
 				remove(gate);
 			}
-			checks.remove(gate);
+			integrity.remove(gate);
 		}
 
 	}

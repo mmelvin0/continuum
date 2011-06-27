@@ -87,6 +87,7 @@ class GateSearch {
 							face.equals(BlockFace.EAST) ||
 							face.equals(BlockFace.WEST)
 						) {
+							// TODO: signs should pop off
 							gates.add(new Gate(fire.getWorld(), inside, outside, face), player);
 							event.setCancelled(true);
 						}
