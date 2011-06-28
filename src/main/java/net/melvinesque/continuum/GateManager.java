@@ -1,12 +1,11 @@
 package net.melvinesque.continuum;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import org.bukkit.Location;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Cancellable;
 import org.bukkit.event.Event.Priority;
@@ -22,8 +21,9 @@ import org.bukkit.scheduler.BukkitScheduler;
 
 public class GateManager {
 
+	IntegrityChecker integrityChecker = new IntegrityChecker();
+	RedstoneChecker redstoneChecker = new RedstoneChecker();
 	List<Gate> gates = new ArrayList<Gate>();
-	Map<Gate, IntegrityCheck> integrity = new HashMap<Gate, IntegrityCheck>();
 	BukkitScheduler scheduler;
 	PluginManager pm;
 	Main plugin;
@@ -63,13 +63,13 @@ public class GateManager {
 		this.player = player;
 		player.sendMessage(gates.size() + " gates");
 	}
-	
+
 	void remove(Gate gate) {
 		player.sendMessage("removing gate " + describe(gate));
 		gates.remove(gate);
 		player.sendMessage(gates.size() + " gates");
 	}
-	
+
 	Gate getGateAt(Location location) {
 		for (Gate gate : gates) {
 			if (gate.contains(location)) {
@@ -78,20 +78,13 @@ public class GateManager {
 		}
 		return null;
 	}
-	
+
 	void integrity(Cancellable c, BlockEvent b) {
-		if (c.isCancelled()) {
-			return;
+		if (!c.isCancelled()) {
+			integrityChecker.add(getGateAt(b.getBlock().getLocation()));
 		}
-		Gate gate = getGateAt(b.getBlock().getLocation());
-		if (gate == null || integrity.containsKey(gate)) {
-			return;
-		}
-		IntegrityCheck check = new IntegrityCheck(gate);
-		scheduler.scheduleSyncDelayedTask(plugin, check);
-		integrity.put(gate, check);
 	}
-	
+
 	void config(Gate gate, String[] lines) {
 		if (lines.length > 0) {
 			String name = lines[0].trim();
@@ -108,7 +101,7 @@ public class GateManager {
 			}
 		}
 	}
-	
+
 	String describe(Gate gate) {
 		String name = gate.getName();
 		if (name.length() > 0) {
@@ -117,7 +110,20 @@ public class GateManager {
 		return Integer.toString(gates.indexOf(gate)); 
 	}
 	
-	void redstone(BlockRedstoneEvent e) {}
+	void redstone(BlockRedstoneEvent e) {
+		Block b = e.getBlock();
+		BlockFace[] faces = {
+			BlockFace.UP,
+			BlockFace.DOWN,
+			BlockFace.NORTH,
+			BlockFace.SOUTH,
+			BlockFace.EAST,
+			BlockFace.WEST
+		};
+		for (BlockFace face : faces) {
+			redstoneChecker.add(getGateAt(b.getFace(face).getLocation()));
+		}
+	}
 
 	void sign(SignChangeEvent e) {
 		Block sign = e.getBlock();
@@ -134,19 +140,51 @@ public class GateManager {
 		}
 	}
 	
-	class IntegrityCheck implements Runnable {
+	class GateChecker implements Runnable {
 
-		Gate gate;
+		List<Gate> gates = new ArrayList<Gate>();
+		boolean scheduled = false;
 
-		IntegrityCheck(Gate gate) {
-			this.gate = gate;
+		void add(Gate gate) {
+			if (gate != null && !gates.contains(gate)) {
+				gates.add(gate);
+			}
+			if (!scheduled && !gates.isEmpty()) {
+				scheduler.scheduleSyncDelayedTask(plugin, this);
+				scheduled = true;
+			}
 		}
 
 		public void run() {
-			if (!gate.intact()) {
-				remove(gate);
+			gates.clear();
+			scheduled = false;
+		}
+
+	}
+
+	class IntegrityChecker extends GateChecker {
+
+		public void run() {
+			for (Gate gate : gates) {
+				if (!gate.intact()) {
+					remove(gate);
+				}
 			}
-			integrity.remove(gate);
+			super.run();
+		}
+
+	}
+
+	class RedstoneChecker extends GateChecker {
+
+		public void run() {
+			for (Gate gate : gates) {
+				boolean power = gate.isPowered();
+				if (power != gate.wasPowered()) {
+					gate.setPower(power);
+				}
+			}
+			super.run();
 		}
 
 	}

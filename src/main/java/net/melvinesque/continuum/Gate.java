@@ -1,6 +1,7 @@
 package net.melvinesque.continuum;
 
 import java.util.List;
+import java.util.logging.Logger;
 
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -11,9 +12,10 @@ public class Gate {
 
 	GateBlock blocks[][][];
 	BlockFace face;
-	String name;
+	String name = "untitled";
 	String destination;
 	World world;
+	boolean power = false;
 	int minX;
 	int minY;
 	int minZ;
@@ -102,13 +104,39 @@ public class Gate {
 	void setName(String name) {
 		this.name = name;
 	}
-	
+
 	String getDestination() {
 		return destination;
 	}
-	
+
 	void setDestination(String destination) {
 		this.destination = destination;
+	}
+
+	boolean wasPowered() {
+		return power;
+	}
+
+	boolean isPowered() {
+		for (int x = 0; x < lenX; x++) {
+			for (int y = 0; y < lenY; y++) {
+				for (int z = 0; z < lenZ; z++) {
+					GateBlock g = blocks[x][y][z];
+					if (g instanceof OutsideBlock) {
+						Block b = g.getBlock(world);
+						if (b.isBlockPowered() || b.isBlockIndirectlyPowered()) {
+							return true;
+						}
+					}
+				}
+			}
+		}
+		return false;
+	}
+
+	void setPower(boolean power) {
+		this.power = power;
+		Logger.getLogger("Minecraft").info(name + " power " + Boolean.toString(this.power));
 	}
 
 }

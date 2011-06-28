@@ -22,5 +22,9 @@ class GateBlock {
 	boolean intact(World world) {
 		return world.getBlockAt(x, y, z).getTypeId() == m;
 	}
+
+	Block getBlock(World world) {
+		return world.getBlockAt(x, y, z);
+	}
 	
 }

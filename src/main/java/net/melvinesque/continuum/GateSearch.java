@@ -2,7 +2,6 @@ package net.melvinesque.continuum;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.logging.Logger;
 
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -27,8 +26,7 @@ class GateSearch {
 	
 	final double RADIUS = 10.0;
 	final int DEPTH = 64;
-	
-	Logger log = Logger.getLogger("Minecraft");
+
 	BukkitScheduler scheduler;
 	GateManager gates;
 	PluginManager pm;
