@@ -2,10 +2,10 @@ package net.melvinesque.continuum;
 
 import org.bukkit.block.Block;
 
-class InsideBlock extends GateBlock {
+class RingPart extends GatePart {
 
-	InsideBlock(Block b) {
-		super(b);
+	RingPart(Block block) {
+		super(block);
 	}
 
 }

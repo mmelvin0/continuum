@@ -10,36 +10,38 @@ import org.bukkit.block.BlockFace;
 
 public class Gate {
 
-	GateBlock blocks[][][];
-	BlockFace face;
-	String name = "untitled";
-	String destination;
-	World world;
-	boolean power = false;
-	int minX;
-	int minY;
-	int minZ;
-	int maxX;
-	int maxY;
-	int maxZ;
-	int lenX;
-	int lenY;
-	int lenZ;
+	Logger log = Logger.getLogger("Minecraft");
 
-	Gate(World world, List<Block> inside, List<Block> outside, BlockFace face) {
+	BlockFace face;
+	Gate target;
+	GateManager manager;
+	GatePart parts[][][];
+	String name;
+	World world;
+
+	int minX, minY, minZ;
+	int maxX, maxY, maxZ;
+	int lenX, lenY, lenZ;
+	boolean power;
+
+	Gate(String name, BlockFace face, List<Block> fill, List<Block> ring, GateManager manager) {
+		Location location;
+		int x, y, z;
+		this.name = name;
+		this.face = face;
+		this.manager = manager;
+		this.power = false;
 		minX = Integer.MAX_VALUE;
 		minY = Integer.MAX_VALUE;
 		minZ = Integer.MAX_VALUE;
 		maxX = Integer.MIN_VALUE;
 		maxY = Integer.MIN_VALUE;
 		maxZ = Integer.MIN_VALUE;
-		int x, y, z;
-		Location l;
-		for (Block b : outside) {
-			l = b.getLocation();
-			x = l.getBlockX();
-			y = l.getBlockY();
-			z = l.getBlockZ();
+		for (Block block : ring) {
+			location = block.getLocation();
+			x = location.getBlockX();
+			y = location.getBlockY();
+			z = location.getBlockZ();
 			minX = Math.min(minX, x);
 			maxX = Math.max(maxX, x);
 			minY = Math.min(minY, y);
@@ -50,36 +52,35 @@ public class Gate {
 		lenX = maxX - minX + 1;
 		lenY = maxY - minY + 1;
 		lenZ = maxZ - minZ + 1;
-		blocks = new GateBlock[lenX][lenY][lenZ];
-		for (Block b : outside) {
-			l = b.getLocation();
-			blocks[l.getBlockX() - minX][l.getBlockY() - minY][l.getBlockZ() - minZ] = new OutsideBlock(b);
+		parts = new GatePart[lenX][lenY][lenZ];
+		for (Block block : ring) {
+			if (world == null) {
+				world = block.getWorld();
+			}
+			location = block.getLocation();
+			parts[location.getBlockX() - minX][location.getBlockY() - minY][location.getBlockZ() - minZ] = new RingPart(block);
 		}
-		for (Block b : inside) {
-			l = b.getLocation();
-			blocks[l.getBlockX() - minX][l.getBlockY() - minY][l.getBlockZ() - minZ] = new InsideBlock(b);
+		for (Block block : fill) {
+			if (world == null) {
+				world = block.getWorld();
+			}
+			location = block.getLocation();
+			parts[location.getBlockX() - minX][location.getBlockY() - minY][location.getBlockZ() - minZ] = new FillPart(block);
 		}
-		this.face = face;
-		this.world = world;
+		checkPower(true);
 	}
 
-	boolean contains(Location l) {
-		if (!world.equals(l.getWorld())) {
-			return false;
-		}
-		int x = l.getBlockX(), y = l.getBlockY(), z = l.getBlockZ();
-		if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) {
-			return false;
-		}
-		return true;
+	public String toString() {
+		return "Gate<" + name + ">";
 	}
-	
-	boolean intact() {
+
+	boolean isIntact() {
+		GatePart part;
 		for (int x = 0; x < lenX; x++) {
 			for (int y = 0; y < lenY; y++) {
 				for (int z = 0; z < lenZ; z++) {
-					GateBlock b = blocks[x][y][z];
-					if (b instanceof OutsideBlock && !b.intact(world)) {
+					part = parts[x][y][z];
+					if (part != null && !part.isIntact()) {
 						return false;
 					}
 				}
@@ -88,43 +89,65 @@ public class Gate {
 		return true;
 	}
 
-	boolean isOutside(Block block) {
-		Location l = block.getLocation();
-		int x = l.getBlockX(), y = l.getBlockY(), z = l.getBlockZ();
+	boolean rectangleContains(Location location) {
+		if (!world.equals(location.getWorld())) {
+			return false;
+		}
+		int x = location.getBlockX(), y = location.getBlockY(), z = location.getBlockZ();
 		if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) {
 			return false;
 		}
-		return blocks[x - minX][y - minY][z - minZ] instanceof OutsideBlock;
+		return true;
+	}
+
+	boolean ringContains(Block block) {
+		Location location = block.getLocation();
+		int x = location.getBlockX(), y = location.getBlockY(), z = location.getBlockZ();
+		if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) {
+			return false;
+		}
+		// TODO: ensure materials match
+		return parts[x - minX][y - minY][z - minZ] instanceof RingPart;
 	}
 
 	String getName() {
-		return name == null ? "" : name;
+		return name;
 	}
 
 	void setName(String name) {
+		if (name == null || this.name.equals(name)) {
+			return;
+		}
+		if (manager.has(name)) {
+			log.info("gate already exists: " + name);
+			return;
+		}
+		manager.map.remove(this.name);
+		log.info(this + " name = " + name);
 		this.name = name;
+		manager.map.put(this.name, this);
 	}
 
-	String getDestination() {
-		return destination;
+	void checkPower() {
+		checkPower(false);
 	}
 
-	void setDestination(String destination) {
-		this.destination = destination;
-	}
-
-	boolean wasPowered() {
-		return power;
+	void checkPower(boolean initial) {
+		boolean power = isPowered();
+		if (power != this.power) {
+			this.power = power;
+			log.info(this + " power = " + power);
+		}
 	}
 
 	boolean isPowered() {
 		for (int x = 0; x < lenX; x++) {
 			for (int y = 0; y < lenY; y++) {
 				for (int z = 0; z < lenZ; z++) {
-					GateBlock g = blocks[x][y][z];
-					if (g instanceof OutsideBlock) {
-						Block b = g.getBlock(world);
-						if (b.isBlockPowered() || b.isBlockIndirectlyPowered()) {
+					GatePart part = parts[x][y][z];
+					if (part instanceof RingPart) {
+						Block block = part.getBlock();
+						if (block.isBlockPowered()) {
 							return true;
 						}
 					}
@@ -134,9 +157,17 @@ public class Gate {
 		return false;
 	}
 
-	void setPower(boolean power) {
-		this.power = power;
-		Logger.getLogger("Minecraft").info(name + " power " + Boolean.toString(this.power));
+	Gate getTarget() {
+		return target;
+	}
+
+	void setTarget(Gate gate) {
+		if (this.equals(gate)) {
+			log.info(gate + " cannot be its own target");
+			return;
+		}
+		target = gate;
+		log.info(this + " target = " + target);
 	}
 
 }
