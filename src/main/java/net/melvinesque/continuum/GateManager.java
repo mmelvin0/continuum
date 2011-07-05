@@ -18,6 +18,8 @@ import org.bukkit.event.block.BlockEvent;
 import org.bukkit.event.block.BlockListener;
 import org.bukkit.event.block.BlockRedstoneEvent;
 import org.bukkit.event.block.SignChangeEvent;
+import org.bukkit.material.MaterialData;
+import org.bukkit.material.Sign;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.scheduler.BukkitScheduler;
 
@@ -53,7 +55,7 @@ public class GateManager {
 				handleRedstone(event);
 			}
 			public void onSignChange(SignChangeEvent event) {
-				handleSign(event);
+				handleSignChange(event);
 			}
 		};
 		pm.registerEvent(Type.BLOCK_BREAK, listener, Priority.Monitor, plugin);
@@ -79,7 +81,7 @@ public class GateManager {
 		do {
 			name = "Gate" + ++i;
 		} while (has(name));
-		add(new Gate(name, face, fill, ring, this));
+		add(new Gate(name, face, fill, ring, plugin));
 	}
 
 	Gate get(Block block) {
@@ -88,7 +90,7 @@ public class GateManager {
 
 	Gate get(Location location) {
 		for (Gate gate : list) {
-			if (gate.rectangleContains(location)) {
+			if (gate.consistsOf(location)) {
 				return gate;
 			}
 		}
@@ -116,29 +118,6 @@ public class GateManager {
 		log.info(gate + " removed");
 	}
 
-	void configure(Gate gate, String[] lines) {
-		String text;
-		if (lines.length <= 1) {
-			return;
-		}
-		text = lines[0].trim();
-		if (text.length() > 0) {
-			gate.setName(text);
-		}
-		if (lines.length < 2) {
-			return;
-		}
-		text = lines[1].trim();
-		if (text.length() > 1) {
-			Gate target = map.get(text);
-			if (target == null) {
-				log.info("no such gate: " + text);
-				return;
-			}
-			gate.setTarget(target);
-		}
-	}
-
 	void handleBreak(Cancellable c, BlockEvent b) {
 		if (!c.isCancelled()) {
 			integrityCheck.add(get(b.getBlock()));
@@ -160,17 +139,14 @@ public class GateManager {
 		}
 	}
 
-	void handleSign(SignChangeEvent e) {
+	void handleSignChange(SignChangeEvent e) {
 		Block sign = e.getBlock();
-		if (sign.getState() instanceof org.bukkit.block.Sign) {
-			org.bukkit.block.Sign state = (org.bukkit.block.Sign)sign.getState();
-			if (state.getData() instanceof org.bukkit.material.Sign) {
-				org.bukkit.material.Sign data = (org.bukkit.material.Sign)state.getData();
-				Block block = sign.getFace(data.getAttachedFace());
-				Gate gate = get(block);
-				if (gate != null && gate.ringContains(block)) {
-					configure(gate, e.getLines());
-				}
+		MaterialData data = sign.getState().getData();
+		if (data instanceof Sign) {
+			Block part = sign.getFace(((Sign)data).getAttachedFace());
+			Gate gate = get(part);
+			if (gate != null && gate.ringContains(part)) {
+				gate.attachSign(sign);
 			}
 		}
 	}
