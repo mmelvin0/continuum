@@ -88,8 +88,7 @@ class GateSearch {
 							face.equals(BlockFace.EAST) ||
 							face.equals(BlockFace.WEST)
 						) {
-							// TODO: signs should pop off
-							manager.add(manager.create(face, fill, ring));
+							manager.create(face, fill, ring);
 							event.setCancelled(true);
 						}
 					}
@@ -222,6 +221,7 @@ class GateSearch {
 		return (
 			matieral.equals(Material.COBBLESTONE) ||
 			matieral.equals(Material.DIAMOND_BLOCK) ||
+			matieral.equals(Material.IRON_BLOCK) ||
 			matieral.equals(Material.GOLD_BLOCK) ||
 			matieral.equals(Material.LOG) ||
 			matieral.equals(Material.NETHERRACK)
@@ -229,11 +229,16 @@ class GateSearch {
 	}
 
 	boolean isFill(Block block) {
-		return block.getType().equals(Material.AIR);
+		Material material = block.getType();
+		return (
+			material.equals(Material.AIR) ||
+			material.equals(Material.SIGN_POST) ||
+			material.equals(Material.WALL_SIGN)
+		);
 	}
 
 	boolean isRing(Block block) {
-		return !block.getType().equals(Material.AIR);
+		return !isFill(block);
 	}
 
 }

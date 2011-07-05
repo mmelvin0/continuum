@@ -4,9 +4,13 @@ import java.util.List;
 import java.util.logging.Logger;
 
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.material.MaterialData;
+import org.bukkit.material.Sign;
 
 public class Gate {
 
@@ -155,6 +159,28 @@ public class Gate {
 			}
 		}
 		return false;
+	}
+	
+	void dropSigns() {
+		for (int x = minX - 1; x <= maxX + 1; x++) {
+			for (int y = minY - 1; y <= maxY + 1; y++) {
+				for (int z = minZ - 1; z <= maxZ + 1; z++) {
+					Block block = world.getBlockAt(x, y, z);
+					if (ringContains(block)) {
+						continue;
+					}
+					MaterialData data = block.getState().getData();
+					if (!(data instanceof Sign)) {
+						continue;
+					}
+					if (!ringContains(block.getFace(((Sign)data).getAttachedFace()))) {
+						continue;
+					}
+					block.setType(Material.AIR);
+					world.dropItemNaturally(block.getLocation(), new ItemStack(Material.SIGN, 1));
+				}
+			}
+		}
 	}
 
 	Gate getTarget() {

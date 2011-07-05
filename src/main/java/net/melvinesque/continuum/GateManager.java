@@ -65,20 +65,21 @@ public class GateManager {
 	void disable() {}
 
 	void add(Gate gate) {
-		if (!list.contains(gate)) {
-			list.add(gate);
-		}
 		map.put(gate.getName(), gate);
-		log.info(gate + " added");
+		if (!list.contains(gate)) {
+			gate.dropSigns();
+			list.add(gate);
+			log.info(gate + " added");
+		}
 	}
 
-	Gate create(BlockFace face, List<Block> fill, List<Block> ring) {
+	void create(BlockFace face, List<Block> fill, List<Block> ring) {
 		String name;
 		int i = 0;
 		do {
 			name = "Gate" + ++i;
 		} while (has(name));
-		return new Gate(name, face, fill, ring, this);
+		add(new Gate(name, face, fill, ring, this));
 	}
 
 	Gate get(Block block) {
@@ -111,6 +112,7 @@ public class GateManager {
 		}
 		map.remove(gate.getName());
 		list.remove(gate);
+		gate.dropSigns();
 		log.info(gate + " removed");
 	}
 
@@ -165,7 +167,7 @@ public class GateManager {
 			if (state.getData() instanceof org.bukkit.material.Sign) {
 				org.bukkit.material.Sign data = (org.bukkit.material.Sign)state.getData();
 				Block block = sign.getFace(data.getAttachedFace());
-				Gate gate = get(block.getLocation());
+				Gate gate = get(block);
 				if (gate != null && gate.ringContains(block)) {
 					configure(gate, e.getLines());
 				}
