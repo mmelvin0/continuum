@@ -33,14 +33,42 @@ public class Gate {
 	boolean power;
 
 	Gate(String name, BlockFace face, List<Block> fill, List<Block> ring, Main plugin) {
-		Location location;
-		int x, y, z;
+		Location loc;
 		this.name = name;
 		this.face = face;
 		this.plugin = plugin;
 		manager = plugin.getGateManager();
 		scheduler = plugin.getServer().getScheduler();
 		power = false;
+		calcSize(ring);
+		parts = new GatePart[lenX][lenY][lenZ];
+		for (Block block : ring) {
+			if (world == null) {
+				world = block.getWorld();
+			}
+			loc = block.getLocation();
+			parts[loc.getBlockX() - minX][loc.getBlockY() - minY][loc.getBlockZ() - minZ] = new RingPart(block);
+		}
+		for (Block block : fill) {
+			if (world == null) {
+				world = block.getWorld();
+			}
+			loc = block.getLocation();
+			parts[loc.getBlockX() - minX][loc.getBlockY() - minY][loc.getBlockZ() - minZ] = new FillPart(block);
+		}
+		checkPower(true);
+	}
+
+	public String toString() {
+		return "Gate(" + name + ")";
+	}
+
+
+	/* Geometry */
+
+	void calcSize(List<Block> ring) {
+		Location loc;
+		int x, y, z;
 		minX = Integer.MAX_VALUE;
 		minY = Integer.MAX_VALUE;
 		minZ = Integer.MAX_VALUE;
@@ -48,10 +76,10 @@ public class Gate {
 		maxY = Integer.MIN_VALUE;
 		maxZ = Integer.MIN_VALUE;
 		for (Block block : ring) {
-			location = block.getLocation();
-			x = location.getBlockX();
-			y = location.getBlockY();
-			z = location.getBlockZ();
+			loc = block.getLocation();
+			x = loc.getBlockX();
+			y = loc.getBlockY();
+			z = loc.getBlockZ();
 			minX = Math.min(minX, x);
 			maxX = Math.max(maxX, x);
 			minY = Math.min(minY, y);
@@ -62,26 +90,23 @@ public class Gate {
 		lenX = maxX - minX + 1;
 		lenY = maxY - minY + 1;
 		lenZ = maxZ - minZ + 1;
-		parts = new GatePart[lenX][lenY][lenZ];
-		for (Block block : ring) {
-			if (world == null) {
-				world = block.getWorld();
-			}
-			location = block.getLocation();
-			parts[location.getBlockX() - minX][location.getBlockY() - minY][location.getBlockZ() - minZ] = new RingPart(block);
-		}
-		for (Block block : fill) {
-			if (world == null) {
-				world = block.getWorld();
-			}
-			location = block.getLocation();
-			parts[location.getBlockX() - minX][location.getBlockY() - minY][location.getBlockZ() - minZ] = new FillPart(block);
-		}
-		checkPower(true);
 	}
 
-	public String toString() {
-		return "Gate<" + name + ">";
+	boolean consistsOf(Location loc) {
+		if (!world.equals(loc.getWorld())) {
+			return false;
+		}
+		if (sign1 != null && sign1.equals(loc)) {
+			return true;
+		}
+		if (sign2 != null && sign2.equals(loc)) {
+			return true;
+		}
+		int x = loc.getBlockX(), y = loc.getBlockY(), z = loc.getBlockZ();
+		if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) {
+			return false;
+		}
+		return ringContains(world.getBlockAt(loc));
 	}
 
 	boolean isIntact() {
@@ -105,43 +130,25 @@ public class Gate {
 		return true;
 	}
 
-	boolean consistsOf(Location location) {
-		if (!world.equals(location.getWorld())) {
-			return false;
-		}
-		if (sign1 != null && sign1.equals(location)) {
-			return true;
-		}
-		if (sign2 != null && sign2.equals(location)) {
-			return true;
-		}
-		int x = location.getBlockX(), y = location.getBlockY(), z = location.getBlockZ();
+	boolean ringContains(Block block) {
+		Location loc = block.getLocation();
+		int x = loc.getBlockX(), y = loc.getBlockY(), z = loc.getBlockZ();
 		if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) {
 			return false;
 		}
-		return ringContains(world.getBlockAt(location));
+		GatePart part = parts[x - minX][y - minY][z - minZ];
+		return part instanceof RingPart ? part.isIntact() : false;
 	}
 
-	boolean ringContains(Block block) {
-		Location location = block.getLocation();
-		int x = location.getBlockX(), y = location.getBlockY(), z = location.getBlockZ();
-		if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) {
-			return false;
-		}
-		// TODO: ensure materials match
-		return parts[x - minX][y - minY][z - minZ] instanceof RingPart;
-	}
+
+	/* Name & Target */
 
 	String getName() {
 		return name;
 	}
 
 	void setName(String name) {
-		if (name == null || this.name.equals(name)) {
-			return;
-		}
-		if (manager.has(name)) {
-			log.info("gate already exists: " + name);
+		if (name == null || this.name.equals(name) || manager.has(name)) {
 			return;
 		}
 		manager.map.remove(this.name);
@@ -152,6 +159,23 @@ public class Gate {
 			target.updateSigns();
 		}
 	}
+
+	Gate getTarget() {
+		return target;
+	}
+
+	void setTarget(Gate gate) {
+		if (this.equals(gate)) {
+			log.info(gate + " cannot be its own target");
+			return;
+		}
+		target = gate;
+		log.info(this + " target = " + target);
+		updateSigns();
+	}
+
+
+	/* Power */
 
 	void checkPower() {
 		checkPower(false);
@@ -181,6 +205,9 @@ public class Gate {
 		}
 		return false;
 	}
+
+
+	/* Signs */
 	
 	void attachSign(Block sign) {
 		isIntact();
@@ -221,8 +248,8 @@ public class Gate {
 		scheduler.scheduleSyncDelayedTask(plugin, new SignWriter());
 	}
 
-	boolean isSignIntact(Location location) {
-		Block block = world.getBlockAt(location);
+	boolean isSignIntact(Location loc) {
+		Block block = world.getBlockAt(loc);
 		BlockState state = block.getState();
 		MaterialData data = state.getData();
 		if (
@@ -256,20 +283,6 @@ public class Gate {
 			sign2 = sign.getLocation();
 			updateSigns();
 		}
-	}
-
-	Gate getTarget() {
-		return target;
-	}
-
-	void setTarget(Gate gate) {
-		if (this.equals(gate)) {
-			log.info(gate + " cannot be its own target");
-			return;
-		}
-		target = gate;
-		log.info(this + " target = " + target);
-		updateSigns();
 	}
 
 	class SignReader implements Runnable {

@@ -109,12 +109,12 @@ class GateSearch {
 		double maxY = Double.NEGATIVE_INFINITY;
 		double maxZ = Double.NEGATIVE_INFINITY;
 		double x, y, z;
-		Location location;
+		Location loc;
 		for (Block block : ring) {
-			location = block.getLocation();
-			x = location.getX();
-			y = location.getY();
-			z = location.getZ();
+			loc = block.getLocation();
+			x = loc.getX();
+			y = loc.getY();
+			z = loc.getZ();
 			minX = Math.min(minX, x);
 			maxX = Math.max(maxX, x);
 			minY = Math.min(minY, y);
@@ -123,15 +123,15 @@ class GateSearch {
 			maxZ = Math.max(maxZ, z);
 		}
 		log.info("min/max x: " + minX + ".." + maxX + " y: " + minY + ".." + maxY + " z: " + minZ + ".." + maxZ);
-		location = new Location(player.getWorld(), maxX - ((maxX - minX) / 2), maxY - ((maxY - minY) / 2), maxZ - ((maxZ - minZ) / 2));
-		log.info("center: " + location.getX() + " " + location.getY() + " " + location.getZ());
-		location = player.getLocation();
+		loc = new Location(player.getWorld(), maxX - ((maxX - minX) / 2), maxY - ((maxY - minY) / 2), maxZ - ((maxZ - minZ) / 2));
+		log.info("center: " + loc.getX() + " " + loc.getY() + " " + loc.getZ());
+		loc = player.getLocation();
 		if (minX == maxX) {
-			return location.getX() - .5 < minX ? BlockFace.NORTH : BlockFace.SOUTH;
+			return loc.getX() - .5 < minX ? BlockFace.NORTH : BlockFace.SOUTH;
 		} else if (minY == maxY) {
-			return location.getY() - .5 < minY ? BlockFace.DOWN : BlockFace.UP;
+			return loc.getY() - .5 < minY ? BlockFace.DOWN : BlockFace.UP;
 		} else if (minZ == maxZ) {
-			return location.getZ() - .5 < minZ ? BlockFace.EAST : BlockFace.WEST;
+			return loc.getZ() - .5 < minZ ? BlockFace.EAST : BlockFace.WEST;
 		} else {
 			return BlockFace.SELF;
 		}
@@ -139,7 +139,7 @@ class GateSearch {
 
 	boolean search(Block fire, List<Block> fill, List<Block> ring, Player player) {
 		Block keystone = fire.getFace(BlockFace.DOWN);
-		Location location = fire.getLocation();
+		Location loc = fire.getLocation();
 		List<Vector> horizontals = new ArrayList<Vector>();
 		Vector vertical = new Vector(0, 1, 0);
 		float yaw = player.getLocation().getYaw();
@@ -162,7 +162,7 @@ class GateSearch {
 				ring.clear();
 				fill.add(fire);
 				ring.add(keystone);
-				if (search(location, location, fill, ring, horizontal, vertical, 0)) {
+				if (search(loc, loc, fill, ring, horizontal, vertical, 0)) {
 					return true;
 				}
 			}

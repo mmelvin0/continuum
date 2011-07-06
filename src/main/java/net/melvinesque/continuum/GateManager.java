@@ -66,6 +66,9 @@ public class GateManager {
 
 	void disable() {}
 
+
+	/* Accessors */
+
 	void add(Gate gate) {
 		map.put(gate.getName(), gate);
 		if (!list.contains(gate)) {
@@ -88,9 +91,9 @@ public class GateManager {
 		return get(block.getLocation());
 	}
 
-	Gate get(Location location) {
+	Gate get(Location loc) {
 		for (Gate gate : list) {
-			if (gate.consistsOf(location)) {
+			if (gate.consistsOf(loc)) {
 				return gate;
 			}
 		}
@@ -114,9 +117,13 @@ public class GateManager {
 		}
 		map.remove(gate.getName());
 		list.remove(gate);
+		// should all signs be dropped on remove? or just primary/secondary signs?
 		gate.dropSigns();
 		log.info(gate + " removed");
 	}
+
+
+	/* Events */
 
 	void handleBreak(Cancellable c, BlockEvent b) {
 		if (!c.isCancelled()) {
@@ -150,6 +157,8 @@ public class GateManager {
 			}
 		}
 	}
+
+	/* Tasks */
 
 	class Check implements Runnable {
 

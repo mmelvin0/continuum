@@ -12,10 +12,10 @@ class GatePart {
 	int x, y, z;
 
 	GatePart(Block block) {
-		Location location = block.getLocation();
-		x = location.getBlockX();
-		y = location.getBlockY();
-		z = location.getBlockZ();
+		Location loc = block.getLocation();
+		x = loc.getBlockX();
+		y = loc.getBlockY();
+		z = loc.getBlockZ();
 		material = block.getType();
 		world = block.getWorld();
 	}
