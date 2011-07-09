@@ -1,7 +1,9 @@
 package net.melvinesque.continuum;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.logging.Logger;
 
 import org.bukkit.Location;
@@ -77,8 +79,8 @@ class GateSearch {
 					player.equals(event.getPlayer()) &&
 					IgniteCause.FLINT_AND_STEEL.equals(event.getCause())
 				) {
-					List<Block> fill = new ArrayList<Block>();
-					List<Block> ring = new ArrayList<Block>();
+					Set<Block> fill = new HashSet<Block>();
+					Set<Block> ring = new HashSet<Block>();
 					if (search(fire, fill, ring, player)) {
 						BlockFace face = facing(ring, player);
 						log.info("facing: " + face.name());
@@ -101,7 +103,7 @@ class GateSearch {
 	
 	void disable() {}
 	
-	BlockFace facing(List<Block> ring, Player player) {
+	BlockFace facing(Set<Block> ring, Player player) {
 		double minX = Double.POSITIVE_INFINITY;
 		double minY = Double.POSITIVE_INFINITY;
 		double minZ = Double.POSITIVE_INFINITY;
@@ -137,7 +139,7 @@ class GateSearch {
 		}
 	}
 
-	boolean search(Block fire, List<Block> fill, List<Block> ring, Player player) {
+	boolean search(Block fire, Set<Block> fill, Set<Block> ring, Player player) {
 		Block keystone = fire.getFace(BlockFace.DOWN);
 		Location loc = fire.getLocation();
 		List<Vector> horizontals = new ArrayList<Vector>();
@@ -170,7 +172,7 @@ class GateSearch {
 		return false;
 	}
 
-	boolean search(Location fire, Location current, List<Block> fill, List<Block> ring, Vector horizontal, Vector vertical, int depth) {
+	boolean search(Location fire, Location current, Set<Block> fill, Set<Block> ring, Vector horizontal, Vector vertical, int depth) {
 		if (depth > DEPTH) {
 			log.info("Max search depth (" + DEPTH + ") exceeded");
 			return false;

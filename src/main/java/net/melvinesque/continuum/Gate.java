@@ -1,6 +1,7 @@
 package net.melvinesque.continuum;
 
-import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.logging.Logger;
 
 import org.bukkit.Location;
@@ -15,8 +16,14 @@ import org.bukkit.scheduler.BukkitScheduler;
 
 public class Gate {
 
+	final int FIRST_LEVEL_TICK = 14;
+	final int TICKS_PER_LEVEL = 4;
+	final int MAX_LEVEL = 7;
+	final int MAX_CHARGE = (FIRST_LEVEL_TICK + MAX_LEVEL * TICKS_PER_LEVEL) - 1;
+
 	Logger log = Logger.getLogger("Minecraft");
 
+	Activator activator;
 	BlockFace face;
 	BukkitScheduler scheduler;
 	Gate target;
@@ -25,14 +32,16 @@ public class Gate {
 	Location sign1, sign2;
 	Main plugin;
 	String name;
+	Vortex vortex;
 	World world;
 
 	int minX, minY, minZ;
 	int maxX, maxY, maxZ;
 	int lenX, lenY, lenZ;
+	int charge = 0;
 	boolean power;
 
-	Gate(String name, BlockFace face, List<Block> fill, List<Block> ring, Main plugin) {
+	Gate(String name, BlockFace face, Set<Block> fill, Set<Block> ring, Main plugin) {
 		Location loc;
 		this.name = name;
 		this.face = face;
@@ -56,7 +65,15 @@ public class Gate {
 			loc = block.getLocation();
 			parts[loc.getBlockX() - minX][loc.getBlockY() - minY][loc.getBlockZ() - minZ] = new FillPart(block);
 		}
+		activator = new Activator();
+		vortex = new Vortex(this, plugin);
 		checkPower(true);
+	}
+
+	void destroy() {
+		vortex.deactivate();
+		// should all signs be dropped? or just primary/secondary signs?
+		dropSigns();
 	}
 
 	public String toString() {
@@ -66,7 +83,7 @@ public class Gate {
 
 	/* Geometry */
 
-	void calcSize(List<Block> ring) {
+	void calcSize(Set<Block> ring) {
 		Location loc;
 		int x, y, z;
 		minX = Integer.MAX_VALUE;
@@ -130,6 +147,35 @@ public class Gate {
 		return true;
 	}
 
+	Location getCenter() {
+		return new Location(world, maxX - ((maxX - minX) / 2), maxY - ((maxY - minY) / 2), maxZ - ((maxZ - minZ) / 2));
+	}
+
+	Set<Block> getFill() {
+		Set<Block> result = new HashSet<Block>();
+		GatePart part;
+		for (int x = 0; x < lenX; x++) {
+			for (int y = 0; y < lenY; y++) {
+				for (int z = 0; z < lenZ; z++) {
+					part = parts[x][y][z];
+					if (part instanceof FillPart) {
+						result.add(part.getBlock());
+					}
+				}
+			}
+		}
+		return result;
+	}
+
+	boolean fillContains(Location loc) {
+		int x = loc.getBlockX(), y = loc.getBlockY(), z = loc.getBlockZ();
+		if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) {
+			return false;
+		}
+		GatePart part = parts[x - minX][y - minY][z - minZ];
+		return part instanceof FillPart;
+	}
+
 	boolean ringContains(Block block) {
 		Location loc = block.getLocation();
 		int x = loc.getBlockX(), y = loc.getBlockY(), z = loc.getBlockZ();
@@ -186,6 +232,11 @@ public class Gate {
 		if (power != this.power) {
 			this.power = power;
 			log.info(this + " power = " + power);
+			if (power) {
+				activator.schedule();
+			} else {
+				activator.schedule();
+			}
 		}
 	}
 
@@ -206,6 +257,44 @@ public class Gate {
 		return false;
 	}
 
+	int getPowerLevel() {
+		return Math.max(0, (charge - FIRST_LEVEL_TICK + TICKS_PER_LEVEL) / TICKS_PER_LEVEL);
+	}
+
+	class Activator implements Runnable {
+
+		boolean scheduled = false;
+
+		public void run() {
+			scheduled = false;
+			power = isPowered();
+			if (power) {
+				if (getPowerLevel() < MAX_LEVEL) {
+					charge++;
+					updateSigns();
+				}
+				if (getPowerLevel() == MAX_LEVEL) {
+					if (target != null && !vortex.active) {
+						vortex.activate();
+					}
+				} else {
+					schedule();
+				}
+			} else if (charge > 0) {
+				charge = 0;
+				updateSigns();
+			}
+			log.info("charge = " + charge + " level = " + getPowerLevel());
+		}
+
+		public void schedule() {
+			if (!scheduled) {
+				scheduler.scheduleSyncDelayedTask(plugin, this);
+				scheduled = true;
+			}
+		}
+
+	}
 
 	/* Signs */
 	
@@ -245,7 +334,7 @@ public class Gate {
 	}
 
 	void updateSigns() {
-		scheduler.scheduleSyncDelayedTask(plugin, new SignWriter());
+		scheduler.scheduleSyncDelayedTask(plugin, new SignUpdater());
 	}
 
 	boolean isSignIntact(Location loc) {
@@ -319,18 +408,23 @@ public class Gate {
 
 	}
 
-	class SignWriter implements Runnable {
+	class SignUpdater implements Runnable {
 
 		public void run() {
 			if (sign1 != null) {
 				if (isSignIntact(sign1)) {
+					log.info("updating sign");
 					Block block = world.getBlockAt(sign1);
 					BlockState state = block.getState();
 					if (state instanceof org.bukkit.block.Sign) {
 						org.bukkit.block.Sign sign = (org.bukkit.block.Sign)state;
 						sign.setLine(0, name);
-						sign.setLine(1, "");
-						sign.setLine(2, "");
+						StringBuilder bar = new StringBuilder();
+						for (int i = 0; i < getPowerLevel(); i++) {
+							bar.append("⌂");
+						}
+						sign.setLine(1, bar.toString());
+						sign.setLine(2, bar.toString());
 						sign.setLine(3, target == null ? "" : target.getName());
 						sign.update();
 					}

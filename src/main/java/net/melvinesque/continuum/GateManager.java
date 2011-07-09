@@ -1,9 +1,9 @@
 package net.melvinesque.continuum;
 
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Logger;
 
 import org.bukkit.Location;
@@ -31,7 +31,7 @@ public class GateManager {
 	PluginManager pm;
 	Main plugin;
 
-	List<Gate> list = new ArrayList<Gate>();
+	Set<Gate> set = new HashSet<Gate>();
 	Map<String, Gate> map = new HashMap<String, Gate>();
 
 	IntegrityCheck integrityCheck = new IntegrityCheck();
@@ -71,14 +71,14 @@ public class GateManager {
 
 	void add(Gate gate) {
 		map.put(gate.getName(), gate);
-		if (!list.contains(gate)) {
+		if (!set.contains(gate)) {
 			gate.dropSigns();
-			list.add(gate);
+			set.add(gate);
 			log.info(gate + " added");
 		}
 	}
 
-	void create(BlockFace face, List<Block> fill, List<Block> ring) {
+	void create(BlockFace face, Set<Block> fill, Set<Block> ring) {
 		String name;
 		int i = 0;
 		do {
@@ -92,7 +92,7 @@ public class GateManager {
 	}
 
 	Gate get(Location loc) {
-		for (Gate gate : list) {
+		for (Gate gate : set) {
 			if (gate.consistsOf(loc)) {
 				return gate;
 			}
@@ -109,16 +109,15 @@ public class GateManager {
 	}
 
 	void remove(Gate gate) {
-		for (Gate other : list) {
+		for (Gate other : set) {
 			Gate target = other.getTarget();
 			if (gate.equals(target)) {
 				other.setTarget(null);
 			}
 		}
 		map.remove(gate.getName());
-		list.remove(gate);
-		// should all signs be dropped on remove? or just primary/secondary signs?
-		gate.dropSigns();
+		set.remove(gate);
+		gate.destroy();
 		log.info(gate + " removed");
 	}
 
@@ -162,7 +161,7 @@ public class GateManager {
 
 	class Check implements Runnable {
 
-		List<Gate> gates = new ArrayList<Gate>();
+		Set<Gate> gates = new HashSet<Gate>();
 		boolean scheduled = false;
 
 		void add(Gate gate) {

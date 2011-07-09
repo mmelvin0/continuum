@@ -15,7 +15,7 @@ public class Main extends JavaPlugin {
 		manager.enable();
 		search = new GateSearch(this);
 		search.enable();
-		log.info(getDescription().getFullName() + " enabled");
+		log.info("[" + getDescription().getFullName() + "] enabled");
 	}
 
 	public void onDisable() {
