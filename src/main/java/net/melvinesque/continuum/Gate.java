@@ -240,6 +240,10 @@ public class Gate {
 		}
 	}
 
+	void deactivate() {
+		vortex.deactivate();
+	}
+
 	boolean isPowered() {
 		for (int x = 0; x < lenX; x++) {
 			for (int y = 0; y < lenY; y++) {

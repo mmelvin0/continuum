@@ -64,7 +64,13 @@ public class GateManager {
 		pm.registerEvent(Type.SIGN_CHANGE, listener, Priority.Monitor, plugin);
 	}
 
-	void disable() {}
+	void disable() {
+		for (Gate gate : set) {
+			gate.deactivate();
+		}
+		set.clear();
+		map.clear();
+	}
 
 
 	/* Accessors */
