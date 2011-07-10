@@ -2,9 +2,12 @@ package net.melvinesque.continuum;
 
 import java.util.logging.Logger;
 
+import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.entity.Player;
 import org.bukkit.event.Event.Priority;
 import org.bukkit.event.Event.Type;
 import org.bukkit.event.block.BlockFromToEvent;
@@ -65,8 +68,12 @@ public class Vortex {
 
 		public void onPlayerMove(PlayerMoveEvent event) {
 			if (active && gate.target != null && gate.fillContains(event.getTo())) {
-				Location to = gate.target.getCenter();
-				if (event.getPlayer().teleport(to)) {
+				Player player = event.getPlayer();
+				Location to = gate.target.getArrivalLocation(player);
+				if (player.teleport(to)) {
+					World world = to.getWorld();
+					Chunk chunk = world.getChunkAt(to);
+					world.refreshChunk(chunk.getX(), chunk.getZ());
 					event.setFrom(to);
 					event.setTo(to);
 					event.setCancelled(true);					

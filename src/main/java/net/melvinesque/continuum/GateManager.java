@@ -1,12 +1,22 @@
 package net.melvinesque.continuum;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.logging.Logger;
 
 import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.event.Cancellable;
@@ -22,8 +32,19 @@ import org.bukkit.material.MaterialData;
 import org.bukkit.material.Sign;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.scheduler.BukkitScheduler;
+import org.yaml.snakeyaml.Yaml;
 
 public class GateManager {
+
+	final String[] REQUIRED_PROPERTIES = {
+		"x",
+		"y",
+		"z",
+		"world",
+		"face",
+		"fill",
+		"ring"
+	};
 
 	Logger log = Logger.getLogger("Minecraft");
 
@@ -62,16 +83,124 @@ public class GateManager {
 		pm.registerEvent(Type.BLOCK_BURN, listener, Priority.Monitor, plugin);
 		pm.registerEvent(Type.REDSTONE_CHANGE, listener, Priority.Monitor, plugin);
 		pm.registerEvent(Type.SIGN_CHANGE, listener, Priority.Monitor, plugin);
+		load();
 	}
 
 	void disable() {
 		for (Gate gate : set) {
 			gate.deactivate();
 		}
+		dump();
 		set.clear();
 		map.clear();
 	}
 
+	void load() {
+		log.info("load");
+		File file = new File(plugin.getDataFolder().getPath() + File.separator + "gates.yml");
+		if (!file.exists()) {
+			return;
+		}
+		log.info("exists");
+		InputStream stream = null;
+		try {
+			stream = new FileInputStream(file);
+		} catch (FileNotFoundException e) {
+			return;
+			// that's fine, nothing to load...
+		}
+		log.info("opened");
+		Map<String, Map<String, Object>> data = (Map<String, Map<String, Object>>)(new Yaml().load(stream));
+		log.info("yaml");
+		for (Map.Entry<String, Map<String, Object>> e : data.entrySet()) {
+			String name = e.getKey();
+			Map<String, Object> props = e.getValue();
+			if (map.containsKey(name)) {
+				log.info("gate already exists: " + name);
+				continue;
+			}
+			boolean valid = true;
+			for (String key : REQUIRED_PROPERTIES) {
+				if (!props.containsKey(key) || props.get(key) == null) {
+					valid = false;
+				}
+			}
+			if (!valid) {
+				// missing required properties
+				log.info("gate missing required properties: " + name);
+				continue;
+			}
+			String worldname = (String)props.get("world");
+			World world = plugin.getServer().getWorld(worldname);
+			if (world == null) {
+				// no such world
+				continue;
+			}
+			BlockFace face = BlockFace.valueOf(BlockFace.class, (String)props.get("face"));
+			if (face == null) {
+				// invalid face
+				continue;
+			}
+			int minX = Integer.valueOf(String.valueOf(props.get("x")));
+			int minY = Integer.valueOf(String.valueOf(props.get("y")));
+			int minZ = Integer.valueOf(String.valueOf(props.get("z")));
+			Set<GatePart> parts = new HashSet<GatePart>();
+			List<List<List<String>>> listX;
+			List<List<String>> listY;
+			List<String> listZ;
+			listX = (List<List<List<String>>>)props.get("fill");
+			for (int x = 0; x < listX.size(); x++) {
+				listY = listX.get(x);
+				for (int y = 0; y < listY.size(); y++) {
+					listZ = listY.get(y);
+					for (int z = 0; z < listZ.size(); z++) {
+						if ("AIR".equals(listZ.get(z))) {
+							parts.add(new FillPart(world, minX + x, minY + y, minZ + z));
+						}
+					}
+				}
+			}
+			listX = (List<List<List<String>>>)props.get("ring");
+			Material material;
+			for (int x = 0; x < listX.size(); x++) {
+				listY = listX.get(x);
+				for (int y = 0; y < listY.size(); y++) {
+					listZ = listY.get(y);
+					for (int z = 0; z < listZ.size(); z++) {
+						material = Material.getMaterial(String.valueOf(listZ.get(z)));
+						if (material != null) {
+							parts.add(new RingPart(world, minX + x, minY + y, minZ + z, material));
+						}
+					}
+				}
+			}
+			Location sign = null;
+			if (props.get("sign") != null) {
+				Map<String, Integer> signprops = (Map<String, Integer>)(props.get("sign"));
+				sign = new Location(world, signprops.get("x"), signprops.get("y"), signprops.get("z"));
+			}
+			add(new Gate(world, name, face, parts, sign, plugin));
+		}
+	}
+
+	void dump() {
+		Map<String, Map<String, Object>> gates = new HashMap<String, Map<String, Object>>();
+		Yaml yaml = new Yaml();
+		for (Gate gate : set) {
+			gates.put(gate.getName(), gate.getData());
+		}
+		File dir = plugin.getDataFolder();
+		if (!dir.exists()) {
+			dir.mkdirs();
+		}
+		File file = new File(dir.getPath() + File.separator + "gates.yml");
+		try {
+			Writer writer = new OutputStreamWriter(new FileOutputStream(file));
+			yaml.dump(gates, writer);
+		} catch (FileNotFoundException e) {
+			log.warning("failed to save " + file.getPath() + " (file not found)");
+		}
+	}
 
 	/* Accessors */
 
@@ -84,13 +213,13 @@ public class GateManager {
 		}
 	}
 
-	void create(BlockFace face, Set<Block> fill, Set<Block> ring) {
+	void create(World world, BlockFace face, Set<Block> fill, Set<Block> ring) {
 		String name;
 		int i = 0;
 		do {
-			name = "Gate" + ++i;
+			name = "gate" + ++i;
 		} while (has(name));
-		add(new Gate(name, face, fill, ring, plugin));
+		add(new Gate(world, name, face, fill, ring, plugin));
 	}
 
 	Gate get(Block block) {
@@ -152,6 +281,7 @@ public class GateManager {
 	}
 
 	void handleSignChange(SignChangeEvent e) {
+//		log.info("sign change");
 		Block sign = e.getBlock();
 		MaterialData data = sign.getState().getData();
 		if (data instanceof Sign) {
@@ -203,6 +333,7 @@ public class GateManager {
 	class RedstoneCheck extends Check {
 
 		public void run() {
+//			log.info("redstone");
 			for (Gate gate : gates) {
 				gate.checkPower();
 			}

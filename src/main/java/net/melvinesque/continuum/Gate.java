@@ -1,6 +1,10 @@
 package net.melvinesque.continuum;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.logging.Logger;
 
@@ -10,6 +14,7 @@ import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.BlockState;
+import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.material.MaterialData;
 import org.bukkit.scheduler.BukkitScheduler;
@@ -39,34 +44,46 @@ public class Gate {
 	int maxX, maxY, maxZ;
 	int lenX, lenY, lenZ;
 	int charge = 0;
-	boolean power;
+	boolean power = false;
 
-	Gate(String name, BlockFace face, Set<Block> fill, Set<Block> ring, Main plugin) {
-		Location loc;
+	Gate(World world, String name, BlockFace face, Main plugin) {
+		this.world = world;
 		this.name = name;
 		this.face = face;
 		this.plugin = plugin;
-		manager = plugin.getGateManager();
-		scheduler = plugin.getServer().getScheduler();
-		power = false;
-		calcSize(ring);
-		parts = new GatePart[lenX][lenY][lenZ];
-		for (Block block : ring) {
-			if (world == null) {
-				world = block.getWorld();
+		this.manager = plugin.getGateManager();
+		this.scheduler = plugin.getServer().getScheduler();
+		this.activator = new Activator();
+		this.vortex = new Vortex(this, plugin);
+	}
+
+	Gate(World world, String name, BlockFace face, Set<Block> fill, Set<Block> ring, Main plugin) {
+		this(world, name, face, plugin);
+		Set<Location> locations = new HashSet<Location>();
+		locations.addAll(getBlockLocations(fill));
+		locations.addAll(getBlockLocations(ring));
+		calcSize(locations);
+		this.parts = new GatePart[lenX][lenY][lenZ];
+		for (Location l : locations) {
+			Block b = world.getBlockAt(l);
+			if (fill.contains(b)) {
+				this.parts[l.getBlockX() - minX][l.getBlockY() - minY][l.getBlockZ() - minZ] = new FillPart(b);
+			} else if (ring.contains(b)) {
+				this.parts[l.getBlockX() - minX][l.getBlockY() - minY][l.getBlockZ() - minZ] = new RingPart(b);
 			}
-			loc = block.getLocation();
-			parts[loc.getBlockX() - minX][loc.getBlockY() - minY][loc.getBlockZ() - minZ] = new RingPart(block);
 		}
-		for (Block block : fill) {
-			if (world == null) {
-				world = block.getWorld();
-			}
-			loc = block.getLocation();
-			parts[loc.getBlockX() - minX][loc.getBlockY() - minY][loc.getBlockZ() - minZ] = new FillPart(block);
+		checkPower(true);
+	}
+
+	Gate(World world, String name, BlockFace face, Set<GatePart> parts, Location sign, Main plugin) {
+		this(world, name, face, plugin);
+		Map<Location, GatePart> map = getPartMap(parts);
+		calcSize(map.keySet());
+		this.parts = new GatePart[lenX][lenY][lenZ];
+		for (Map.Entry<Location, GatePart> e : map.entrySet()) {
+			Location l = e.getKey();
+			this.parts[l.getBlockX() - minX][l.getBlockY() - minY][l.getBlockZ() - minZ] = e.getValue(); 
 		}
-		activator = new Activator();
-		vortex = new Vortex(this, plugin);
 		checkPower(true);
 	}
 
@@ -80,11 +97,63 @@ public class Gate {
 		return "Gate(" + name + ")";
 	}
 
+	Map<String, Object> getData() {
+		Map<String, Object> result = new HashMap<String, Object>();
+		Map<String, Integer> pos;
+		List<List<List<String>>> listX;
+		List<List<String>> listY;
+		List<String> listZ;
+		GatePart part;
+		result.put("x", minX);
+		result.put("y", minY);
+		result.put("z", minZ);
+		if (sign1 == null) {
+			result.put("sign", null);
+		} else {
+			pos = new HashMap<String, Integer>();
+			pos.put("x", sign1.getBlockX());
+			pos.put("y", sign1.getBlockY());
+			pos.put("z", sign1.getBlockZ());
+			result.put("sign", pos);
+		}
+		result.put("face", face.name());
+		result.put("target", target == null ? null : target.getName());
+		result.put("world", world.getName());
+		listX = new ArrayList<List<List<String>>>();
+		for (int x = 0; x < lenX; x++) {
+			listY = new ArrayList<List<String>>();
+			listX.add(listY);
+			for (int y = 0; y < lenY; y++) {
+				listZ = new ArrayList<String>();
+				listY.add(listZ);
+				for (int z = 0; z < lenZ; z++) {
+					part = parts[x][y][z];
+					listZ.add(part instanceof FillPart ? part.getMaterial().name() : null);
+				}
+			}
+		}
+		result.put("fill", listX);
+		listX = new ArrayList<List<List<String>>>();
+		for (int x = 0; x < lenX; x++) {
+			listY = new ArrayList<List<String>>();
+			listX.add(listY);
+			for (int y = 0; y < lenY; y++) {
+				listZ = new ArrayList<String>();
+				listY.add(listZ);
+				for (int z = 0; z < lenZ; z++) {
+					part = parts[x][y][z];
+					listZ.add(part instanceof RingPart ? part.getMaterial().name() : null);
+				}
+			}
+		}
+		result.put("ring", listX);
+		return result;
+	}
+
 
 	/* Geometry */
 
-	void calcSize(Set<Block> ring) {
-		Location loc;
+	void calcSize(Set<Location> locations) {
 		int x, y, z;
 		minX = Integer.MAX_VALUE;
 		minY = Integer.MAX_VALUE;
@@ -92,11 +161,10 @@ public class Gate {
 		maxX = Integer.MIN_VALUE;
 		maxY = Integer.MIN_VALUE;
 		maxZ = Integer.MIN_VALUE;
-		for (Block block : ring) {
-			loc = block.getLocation();
-			x = loc.getBlockX();
-			y = loc.getBlockY();
-			z = loc.getBlockZ();
+		for (Location l : locations) {
+			x = l.getBlockX();
+			y = l.getBlockY();
+			z = l.getBlockZ();
 			minX = Math.min(minX, x);
 			maxX = Math.max(maxX, x);
 			minY = Math.min(minY, y);
@@ -107,6 +175,30 @@ public class Gate {
 		lenX = maxX - minX + 1;
 		lenY = maxY - minY + 1;
 		lenZ = maxZ - minZ + 1;
+	}
+
+	Set<Location> getBlockLocations(Set<Block> blocks) {
+		Set<Location> locations = new HashSet<Location>();
+		for (Block b : blocks) {
+			locations.add(b.getLocation());
+		}
+		return locations;
+	}
+
+	Map<Location, GatePart> getPartMap(Set<GatePart> parts) {
+		Map<Location, GatePart> map = new HashMap<Location, GatePart>();
+		for (GatePart p : parts) {
+			map.put(p.getLocation(), p);
+		}
+		return map;
+	}
+
+	void calcSizeParts(Set<GatePart> parts) {
+		Set<Location> locs = new HashSet<Location>();
+		for (GatePart p : parts) {
+			locs.add(p.getLocation());
+		}
+		calcSize(locs);
 	}
 
 	boolean consistsOf(Location loc) {
@@ -145,6 +237,15 @@ public class Gate {
 			}
 		}
 		return true;
+	}
+
+	Location getArrivalLocation(Player player) {
+		// this is all wrong
+		float x = (float)maxX - (((float)maxX - (float)minX) / 2) + face.getModX();
+		float y = (float)maxY - (((float)maxY - (float)minY) / 2) + face.getModY();
+		float z = (float)maxZ - (((float)maxZ- (float)minZ) / 2) + face.getModZ();
+		Location p = player.getLocation();
+		return new Location(world, x, y, z, p.getYaw(), p.getPitch());
 	}
 
 	Location getCenter() {

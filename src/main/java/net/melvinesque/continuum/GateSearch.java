@@ -90,7 +90,7 @@ class GateSearch {
 							face.equals(BlockFace.EAST) ||
 							face.equals(BlockFace.WEST)
 						) {
-							manager.create(face, fill, ring);
+							manager.create(fire.getWorld(), face, fill, ring);
 							event.setCancelled(true);
 						}
 					}
