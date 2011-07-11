@@ -57,7 +57,7 @@ class GateSearch {
 					Action.RIGHT_CLICK_BLOCK.equals(event.getAction())
 				) {
 					Block block = event.getClickedBlock();
-					if (manager.get(block) == null) {
+					if (manager.get(block.getLocation()) == null) {
 						// interested in fire started by player until next server tick
 						fire = block.getFace(BlockFace.UP);
 						player = event.getPlayer();
@@ -83,7 +83,6 @@ class GateSearch {
 					Set<Block> ring = new HashSet<Block>();
 					if (search(fire, fill, ring, player)) {
 						BlockFace face = facing(ring, player);
-						log.info("facing: " + face.name());
 						if (
 							face.equals(BlockFace.NORTH) ||
 							face.equals(BlockFace.SOUTH) ||
@@ -111,12 +110,12 @@ class GateSearch {
 		double maxY = Double.NEGATIVE_INFINITY;
 		double maxZ = Double.NEGATIVE_INFINITY;
 		double x, y, z;
-		Location loc;
+		Location l;
 		for (Block block : ring) {
-			loc = block.getLocation();
-			x = loc.getX();
-			y = loc.getY();
-			z = loc.getZ();
+			l = block.getLocation();
+			x = l.getX();
+			y = l.getY();
+			z = l.getZ();
 			minX = Math.min(minX, x);
 			maxX = Math.max(maxX, x);
 			minY = Math.min(minY, y);
@@ -124,16 +123,13 @@ class GateSearch {
 			minZ = Math.min(minZ, z);
 			maxZ = Math.max(maxZ, z);
 		}
-		log.info("min/max x: " + minX + ".." + maxX + " y: " + minY + ".." + maxY + " z: " + minZ + ".." + maxZ);
-		loc = new Location(player.getWorld(), maxX - ((maxX - minX) / 2), maxY - ((maxY - minY) / 2), maxZ - ((maxZ - minZ) / 2));
-		log.info("center: " + loc.getX() + " " + loc.getY() + " " + loc.getZ());
-		loc = player.getLocation();
+		l = player.getLocation();
 		if (minX == maxX) {
-			return loc.getX() - .5 < minX ? BlockFace.NORTH : BlockFace.SOUTH;
+			return l.getX() - .5 < minX ? BlockFace.NORTH : BlockFace.SOUTH;
 		} else if (minY == maxY) {
-			return loc.getY() - .5 < minY ? BlockFace.DOWN : BlockFace.UP;
+			return l.getY() - .5 < minY ? BlockFace.DOWN : BlockFace.UP;
 		} else if (minZ == maxZ) {
-			return loc.getZ() - .5 < minZ ? BlockFace.EAST : BlockFace.WEST;
+			return l.getZ() - .5 < minZ ? BlockFace.EAST : BlockFace.WEST;
 		} else {
 			return BlockFace.SELF;
 		}
@@ -150,7 +146,6 @@ class GateSearch {
 		}
 		// 0 = W, 90 = N, 180 = E, 270 = S
 		// determine most likely orientation based on player facing
-		log.info("yaw: " + yaw);
 		if ((yaw >= 45 && yaw <= 135) || (yaw >= 225 && yaw <= 315)) {
 			horizontals.add(new Vector(0, 0, 1));
 			horizontals.add(new Vector(1, 0, 0));
@@ -173,12 +168,8 @@ class GateSearch {
 	}
 
 	boolean search(Location fire, Location current, Set<Block> fill, Set<Block> ring, Vector horizontal, Vector vertical, int depth) {
-		if (depth > DEPTH) {
-			log.info("Max search depth (" + DEPTH + ") exceeded");
-			return false;
-		}
-		if (current.distance(fire) > RADIUS) {
-			log.info("Max search radius (" + RADIUS + ") exceeded");
+		if (depth > DEPTH || current.distance(fire) > RADIUS) {
+			// max search depth or radius exceeded
 			return false;
 		}
 		List<Location> interests = new ArrayList<Location>();

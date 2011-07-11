@@ -95,13 +95,14 @@ public class GateManager {
 		map.clear();
 	}
 
+
+	/* Storage */
+
 	void load() {
-		log.info("load");
 		File file = new File(plugin.getDataFolder().getPath() + File.separator + "gates.yml");
 		if (!file.exists()) {
 			return;
 		}
-		log.info("exists");
 		InputStream stream = null;
 		try {
 			stream = new FileInputStream(file);
@@ -109,14 +110,13 @@ public class GateManager {
 			return;
 			// that's fine, nothing to load...
 		}
-		log.info("opened");
 		Map<String, Map<String, Object>> data = (Map<String, Map<String, Object>>)(new Yaml().load(stream));
-		log.info("yaml");
+		Map<Gate, String> targets = new HashMap<Gate, String>();
 		for (Map.Entry<String, Map<String, Object>> e : data.entrySet()) {
 			String name = e.getKey();
 			Map<String, Object> props = e.getValue();
 			if (map.containsKey(name)) {
-				log.info("gate already exists: " + name);
+				// gate already exists
 				continue;
 			}
 			boolean valid = true;
@@ -127,7 +127,6 @@ public class GateManager {
 			}
 			if (!valid) {
 				// missing required properties
-				log.info("gate missing required properties: " + name);
 				continue;
 			}
 			String worldname = (String)props.get("world");
@@ -179,7 +178,14 @@ public class GateManager {
 				Map<String, Integer> signprops = (Map<String, Integer>)(props.get("sign"));
 				sign = new Location(world, signprops.get("x"), signprops.get("y"), signprops.get("z"));
 			}
-			add(new Gate(world, name, face, parts, sign, plugin));
+			Gate gate = new Gate(world, name, face, parts, sign, plugin);
+			if (props.get("target") != null) {
+				targets.put(gate, String.valueOf(props.get("target")));
+			}
+			add(gate);
+		}
+		for (Map.Entry<Gate, String> e : targets.entrySet()) {
+			e.getKey().setTarget(get(e.getValue()));
 		}
 	}
 
@@ -202,15 +208,12 @@ public class GateManager {
 		}
 	}
 
+
 	/* Accessors */
 
 	void add(Gate gate) {
 		map.put(gate.getName(), gate);
-		if (!set.contains(gate)) {
-			gate.dropSigns();
-			set.add(gate);
-			log.info(gate + " added");
-		}
+		set.add(gate);
 	}
 
 	void create(World world, BlockFace face, Set<Block> fill, Set<Block> ring) {
@@ -220,10 +223,6 @@ public class GateManager {
 			name = "gate" + ++i;
 		} while (has(name));
 		add(new Gate(world, name, face, fill, ring, plugin));
-	}
-
-	Gate get(Block block) {
-		return get(block.getLocation());
 	}
 
 	Gate get(Location loc) {
@@ -253,7 +252,6 @@ public class GateManager {
 		map.remove(gate.getName());
 		set.remove(gate);
 		gate.destroy();
-		log.info(gate + " removed");
 	}
 
 
@@ -261,7 +259,7 @@ public class GateManager {
 
 	void handleBreak(Cancellable c, BlockEvent b) {
 		if (!c.isCancelled()) {
-			integrityCheck.add(get(b.getBlock()));
+			integrityCheck.add(get(b.getBlock().getLocation()));
 		}
 	}
 
@@ -276,19 +274,18 @@ public class GateManager {
 			BlockFace.WEST
 		};
 		for (BlockFace face : faces) {
-			redstoneCheck.add(get(block.getFace(face)));
+			redstoneCheck.add(get(block.getFace(face).getLocation()));
 		}
 	}
 
 	void handleSignChange(SignChangeEvent e) {
-//		log.info("sign change");
 		Block sign = e.getBlock();
-		MaterialData data = sign.getState().getData();
-		if (data instanceof Sign) {
-			Block part = sign.getFace(((Sign)data).getAttachedFace());
-			Gate gate = get(part);
-			if (gate != null && gate.ringContains(part)) {
-				gate.attachSign(sign);
+		MaterialData md = sign.getState().getData();
+		if (md instanceof Sign) {
+			Block part = sign.getFace(((Sign)md).getAttachedFace());
+			Gate gate = get(part.getLocation());
+			if (gate != null && gate.ringContains(part.getLocation())) {
+				gate.attachSign(sign.getLocation());
 			}
 		}
 	}
@@ -333,7 +330,6 @@ public class GateManager {
 	class RedstoneCheck extends Check {
 
 		public void run() {
-//			log.info("redstone");
 			for (Gate gate : gates) {
 				gate.checkPower();
 			}

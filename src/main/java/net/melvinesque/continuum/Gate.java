@@ -21,21 +21,18 @@ import org.bukkit.scheduler.BukkitScheduler;
 
 public class Gate {
 
-	final int FIRST_LEVEL_TICK = 14;
-	final int TICKS_PER_LEVEL = 4;
-	final int MAX_LEVEL = 7;
-	final int MAX_CHARGE = (FIRST_LEVEL_TICK + MAX_LEVEL * TICKS_PER_LEVEL) - 1;
-
 	Logger log = Logger.getLogger("Minecraft");
 
-	Activator activator;
 	BlockFace face;
 	BukkitScheduler scheduler;
+	ChargeMonitor monitor;
 	Gate target;
 	GateManager manager;
 	GatePart parts[][][];
-	Location sign1, sign2;
+	Location sign;
 	Main plugin;
+	SignReader reader;
+	SignUpdater updater;
 	String name;
 	Vortex vortex;
 	World world;
@@ -43,17 +40,18 @@ public class Gate {
 	int minX, minY, minZ;
 	int maxX, maxY, maxZ;
 	int lenX, lenY, lenZ;
-	int charge = 0;
 	boolean power = false;
 
-	Gate(World world, String name, BlockFace face, Main plugin) {
+	private Gate(World world, String name, BlockFace face, Main plugin) {
 		this.world = world;
 		this.name = name;
 		this.face = face;
 		this.plugin = plugin;
 		this.manager = plugin.getGateManager();
 		this.scheduler = plugin.getServer().getScheduler();
-		this.activator = new Activator();
+		this.monitor = new ChargeMonitor();
+		this.reader = new SignReader();
+		this.updater = new SignUpdater();
 		this.vortex = new Vortex(this, plugin);
 	}
 
@@ -72,7 +70,7 @@ public class Gate {
 				this.parts[l.getBlockX() - minX][l.getBlockY() - minY][l.getBlockZ() - minZ] = new RingPart(b);
 			}
 		}
-		checkPower(true);
+		checkPower();
 	}
 
 	Gate(World world, String name, BlockFace face, Set<GatePart> parts, Location sign, Main plugin) {
@@ -84,13 +82,20 @@ public class Gate {
 			Location l = e.getKey();
 			this.parts[l.getBlockX() - minX][l.getBlockY() - minY][l.getBlockZ() - minZ] = e.getValue(); 
 		}
-		checkPower(true);
+		if (sign != null) {
+			setSign(sign);
+			updater.now();
+		}
+		checkPower();
+	}
+
+	void deactivate() {
+		vortex.deactivate();
 	}
 
 	void destroy() {
-		vortex.deactivate();
-		// should all signs be dropped? or just primary/secondary signs?
-		dropSigns();
+		deactivate();
+		removeSign();
 	}
 
 	public String toString() {
@@ -98,6 +103,7 @@ public class Gate {
 	}
 
 	Map<String, Object> getData() {
+		// todo: clean this up
 		Map<String, Object> result = new HashMap<String, Object>();
 		Map<String, Integer> pos;
 		List<List<List<String>>> listX;
@@ -107,13 +113,13 @@ public class Gate {
 		result.put("x", minX);
 		result.put("y", minY);
 		result.put("z", minZ);
-		if (sign1 == null) {
+		if (sign == null) {
 			result.put("sign", null);
 		} else {
 			pos = new HashMap<String, Integer>();
-			pos.put("x", sign1.getBlockX());
-			pos.put("y", sign1.getBlockY());
-			pos.put("z", sign1.getBlockZ());
+			pos.put("x", sign.getBlockX());
+			pos.put("y", sign.getBlockY());
+			pos.put("z", sign.getBlockZ());
 			result.put("sign", pos);
 		}
 		result.put("face", face.name());
@@ -193,39 +199,25 @@ public class Gate {
 		return map;
 	}
 
-	void calcSizeParts(Set<GatePart> parts) {
-		Set<Location> locs = new HashSet<Location>();
-		for (GatePart p : parts) {
-			locs.add(p.getLocation());
-		}
-		calcSize(locs);
-	}
-
-	boolean consistsOf(Location loc) {
-		if (!world.equals(loc.getWorld())) {
+	boolean consistsOf(Location l) {
+		if (!world.equals(l.getWorld())) {
 			return false;
 		}
-		if (sign1 != null && sign1.equals(loc)) {
+		if (isSignIntact() && sign.equals(l)) {
 			return true;
 		}
-		if (sign2 != null && sign2.equals(loc)) {
-			return true;
-		}
-		int x = loc.getBlockX(), y = loc.getBlockY(), z = loc.getBlockZ();
+		int x = l.getBlockX(), y = l.getBlockY(), z = l.getBlockZ();
 		if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) {
 			return false;
 		}
-		return ringContains(world.getBlockAt(loc));
+		return ringContains(l);
 	}
 
 	boolean isIntact() {
 		GatePart part;
-		if (sign1 != null && !isSignIntact(sign1)){
-			setPrimarySign(null);
-		}
-		if (sign2 != null && !isSignIntact(sign2)) {
-			setSecondarySign(null);
-		}
+		// although sign is checked during integrity check
+		// a broken sign doesn't mean a broken gate
+		isSignIntact();
 		for (int x = 0; x < lenX; x++) {
 			for (int y = 0; y < lenY; y++) {
 				for (int z = 0; z < lenZ; z++) {
@@ -239,13 +231,14 @@ public class Gate {
 		return true;
 	}
 
-	Location getArrivalLocation(Player player) {
-		// this is all wrong
-		float x = (float)maxX - (((float)maxX - (float)minX) / 2) + face.getModX();
-		float y = (float)maxY - (((float)maxY - (float)minY) / 2) + face.getModY();
-		float z = (float)maxZ - (((float)maxZ- (float)minZ) / 2) + face.getModZ();
+	Location getArrival(Gate from, Player player) {
+		Location b = world.getBlockAt(getCenter()).getFace(face).getLocation();
 		Location p = player.getLocation();
-		return new Location(world, x, y, z, p.getYaw(), p.getPitch());
+		double modX = lenX % 2 == 1 ? 0.5 : 0.0;
+		double modY = lenY % 2 == 1 ? 0.5 : 0.0;
+		double modZ = lenZ % 2 == 1 ? 0.5 : 0.0;
+		float yaw = p.getYaw() - getYaw(from.face.getOppositeFace()) + getYaw();
+		return new Location(world, b.getX() + modX, b.getY() + modY, b.getZ() + modZ, yaw, p.getPitch() + getPitch());  
 	}
 
 	Location getCenter() {
@@ -268,8 +261,38 @@ public class Gate {
 		return result;
 	}
 
-	boolean fillContains(Location loc) {
-		int x = loc.getBlockX(), y = loc.getBlockY(), z = loc.getBlockZ();
+	float getYaw() {
+		return getYaw(face);
+	}
+
+	float getYaw(BlockFace face) {
+		switch (face) {
+			case WEST:
+				return 0;
+			case NORTH:
+				return 90;
+			case EAST:
+				return 180;
+			case SOUTH:
+				return 270;
+			default:
+				return 0;
+		}
+	}
+
+	float getPitch() {
+		switch (face) {
+			case UP:
+				return -90;
+			case DOWN:
+				return 90;
+			default:
+				return 0;
+		}
+	}
+
+	boolean fillContains(Location l) {
+		int x = l.getBlockX(), y = l.getBlockY(), z = l.getBlockZ();
 		if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) {
 			return false;
 		}
@@ -277,9 +300,8 @@ public class Gate {
 		return part instanceof FillPart;
 	}
 
-	boolean ringContains(Block block) {
-		Location loc = block.getLocation();
-		int x = loc.getBlockX(), y = loc.getBlockY(), z = loc.getBlockZ();
+	boolean ringContains(Location l) {
+		int x = l.getBlockX(), y = l.getBlockY(), z = l.getBlockZ();
 		if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) {
 			return false;
 		}
@@ -299,11 +321,10 @@ public class Gate {
 			return;
 		}
 		manager.map.remove(this.name);
-		log.info(this + " name = " + name);
 		this.name = name;
 		manager.map.put(this.name, this);
 		if (target != null) {
-			target.updateSigns();
+			target.updater.later();
 		}
 	}
 
@@ -313,36 +334,22 @@ public class Gate {
 
 	void setTarget(Gate gate) {
 		if (this.equals(gate)) {
-			log.info(gate + " cannot be its own target");
+			// gate can't be its own target
 			return;
 		}
 		target = gate;
-		log.info(this + " target = " + target);
-		updateSigns();
+		updater.later();
 	}
 
 
 	/* Power */
 
 	void checkPower() {
-		checkPower(false);
-	}
-
-	void checkPower(boolean initial) {
-		boolean power = isPowered();
-		if (power != this.power) {
-			this.power = power;
-			log.info(this + " power = " + power);
-			if (power) {
-				activator.schedule();
-			} else {
-				activator.schedule();
-			}
+		boolean p = isPowered();
+		if (power != p) {
+			power = p;
+			monitor.schedule();
 		}
-	}
-
-	void deactivate() {
-		vortex.deactivate();
 	}
 
 	boolean isPowered() {
@@ -362,181 +369,249 @@ public class Gate {
 		return false;
 	}
 
-	int getPowerLevel() {
-		return Math.max(0, (charge - FIRST_LEVEL_TICK + TICKS_PER_LEVEL) / TICKS_PER_LEVEL);
-	}
+	class ChargeMonitor implements Runnable {
 
-	class Activator implements Runnable {
+		final int FIRST_LEVEL_TICK = 6;
+		final int TICKS_PER_LEVEL = 2;
+		final int MAX_LEVEL = 7;
 
 		boolean scheduled = false;
+		long start = 0;
 
-		public void run() {
-			scheduled = false;
-			power = isPowered();
-			if (power) {
-				if (getPowerLevel() < MAX_LEVEL) {
-					charge++;
-					updateSigns();
-				}
-				if (getPowerLevel() == MAX_LEVEL) {
-					if (target != null && !vortex.active) {
-						vortex.activate();
-					}
-				} else {
-					schedule();
-				}
-			} else if (charge > 0) {
-				charge = 0;
-				updateSigns();
+		void schedule() {
+			if (start <= 0)  {
+				start = world.getFullTime();
 			}
-			log.info("charge = " + charge + " level = " + getPowerLevel());
-		}
-
-		public void schedule() {
 			if (!scheduled) {
 				scheduler.scheduleSyncDelayedTask(plugin, this);
 				scheduled = true;
 			}
 		}
 
+		void stop() {
+			start = 0;
+			updater.now();
+		}
+
+		public void run() {
+			scheduled = false;
+			if (!isPowered()) {
+				stop();
+				return;
+			}
+			long level = getLevel();
+			if (level >= MAX_LEVEL) {
+				if (target != null && !vortex.active) {
+					vortex.activate();
+					stop();
+				}
+			} else {
+				schedule();
+			}
+			if (level != updater.getLevel()) {
+				updater.now();
+			}
+		}
+
+		long getCharge() {
+			return start <= 0 ? 0 : world.getFullTime() - start;
+		}
+
+		long getLevel() {
+			return Math.max(0, (getCharge() - FIRST_LEVEL_TICK + TICKS_PER_LEVEL) / TICKS_PER_LEVEL);
+		}
 	}
 
 	/* Signs */
-	
-	void attachSign(Block sign) {
-		isIntact();
-		if (sign1 == null) {
-			setPrimarySign(sign);
-		} else if (sign2 == null) {
-			setSecondarySign(sign);
+
+	void attachSign(Location l) {
+		if (isIntact() && !isSignIntact()) {
+			setSign(l);
+			reader.later();
 		}
+	}
+
+	void dropSign(Location l) {
+		if (l == null) {
+			return;
+		}
+		if (ringContains(l)) {
+			// just in case someone tries to make a gate out of signs
+			return;
+		}
+		Block b = world.getBlockAt(l);
+		MaterialData md = b.getState().getData();
+		if (!(md instanceof org.bukkit.material.Sign)) {
+			// don't do anything if it isn't a sign
+			return;
+		}
+		if (!ringContains(b.getFace(((org.bukkit.material.Sign)md).getAttachedFace()).getLocation())) {
+			// only pay attention to signs attached to the gate's ring
+			return;
+		}
+		// the sign must be "dropped" just like this
+		// any other way causes horrendous bugs (infinite sign stacks on the ground, worse)
+		b.setType(Material.AIR);
+		world.dropItemNaturally(b.getLocation(), new ItemStack(Material.SIGN, 1));
 	}
 
 	void dropSigns() {
 		for (int x = minX - 1; x <= maxX + 1; x++) {
 			for (int y = minY - 1; y <= maxY + 1; y++) {
 				for (int z = minZ - 1; z <= maxZ + 1; z++) {
-					Block block = world.getBlockAt(x, y, z);
-					if (ringContains(block)) {
-						// just in case someone tries to make a gate out of signs
-						continue;
-					}
-					MaterialData data = block.getState().getData();
-					if (!(data instanceof org.bukkit.material.Sign)) {
-						continue;
-					}
-					if (!ringContains(block.getFace(((org.bukkit.material.Sign)data).getAttachedFace()))) {
-						// only pay attention to signs attached to the gate's ring
-						continue;
-					}
-					// the sign must be "dropped" just like this
-					// any other way causes horrendous bugs (infinite sign stacks on the ground, worse)
-					block.setType(Material.AIR);
-					world.dropItemNaturally(block.getLocation(), new ItemStack(Material.SIGN, 1));
+					dropSign(world.getBlockAt(x, y, z).getLocation());
 				}
 			}
 		}
 	}
 
-	void updateSigns() {
-		scheduler.scheduleSyncDelayedTask(plugin, new SignUpdater());
+	void removeSign() {
+		if (sign == null) {
+			return;
+		}
+		dropSign(sign);
+		sign = null;
 	}
 
-	boolean isSignIntact(Location loc) {
-		Block block = world.getBlockAt(loc);
+	boolean isSignIntact() {
+		if (sign == null) {
+			return false;
+		}
+		if (isSignIntact(sign)) {
+			return true;
+		}
+		removeSign();
+		return false;
+	}
+
+	boolean isSignIntact(Location l) {
+		if (l == null) {
+			return false;
+		}
+		Block block = world.getBlockAt(l);
 		BlockState state = block.getState();
 		MaterialData data = state.getData();
 		if (
 			!(state instanceof org.bukkit.block.Sign) ||
 			!(data instanceof org.bukkit.material.Sign)
 		) {
-			// it's not a sign anymore
+			// it's not a sign
 			return false;
 		}
 		org.bukkit.material.Sign material = (org.bukkit.material.Sign)data;
-		if (!ringContains(block.getFace(material.getAttachedFace()))) {
-			// it's not attached to the gate's ring anymore
+		if (!ringContains(block.getFace(material.getAttachedFace()).getLocation())) {
+			// it's not attached to the gate's ring
 			return false;
 		}
 		return true;
 	}
 
-	void setPrimarySign(Block sign) {
-		if (sign == null) {
-			sign1 = null;
-		} else {
-			sign1 = sign.getLocation();
-			scheduler.scheduleSyncDelayedTask(plugin, new SignReader());
+	void setSign(Location l) {
+		if (l == null) {
+			removeSign();
+		} else if (isSignIntact(l)) {
+			if (sign != null) {
+				removeSign();
+			}
+			sign = l;
 		}
 	}
 
-	void setSecondarySign(Block sign) {
-		if (sign == null) {
-			sign2 = null;
-		} else {
-			sign2 = sign.getLocation();
-			updateSigns();
-		}
-	}
+	abstract class SignSynchronizer implements Runnable {
 
-	class SignReader implements Runnable {
+		boolean scheduled = false;
+
+		void now() {
+			boolean was = scheduled;
+			run();
+			if (was) {
+				later();
+			}
+		}
+
+		void later() {
+			if (!scheduled) {
+				scheduler.scheduleSyncDelayedTask(plugin, this);
+				scheduled = true;
+			}
+		}
 
 		public void run() {
-			if (sign1 != null) {
-				if (isSignIntact(sign1)) {
-					Block block = world.getBlockAt(sign1);
-					BlockState state = block.getState();
-					if (state instanceof org.bukkit.block.Sign) {
-						org.bukkit.block.Sign sign = (org.bukkit.block.Sign)state;
-						String lines[] = sign.getLines();
-						for (int i = 0; i < lines.length; i++) {
-							String line = lines[i].trim();
-							if (line.length() == 0) {
-								continue;
-							}
-							switch (i) {
-								case 0:
-									setName(line);
-									break;
-								case 1:
-									setTarget(manager.get(line));
-									break;
-							}
-						}
-					}
-				} else {
-					setPrimarySign(null);
-				}
-			}
-			updateSigns();
+			scheduled = false;
 		}
 
 	}
 
-	class SignUpdater implements Runnable {
+	class SignReader extends SignSynchronizer {
 
 		public void run() {
-			if (sign1 != null) {
-				if (isSignIntact(sign1)) {
-					log.info("updating sign");
-					Block block = world.getBlockAt(sign1);
-					BlockState state = block.getState();
-					if (state instanceof org.bukkit.block.Sign) {
-						org.bukkit.block.Sign sign = (org.bukkit.block.Sign)state;
-						sign.setLine(0, name);
-						StringBuilder bar = new StringBuilder();
-						for (int i = 0; i < getPowerLevel(); i++) {
-							bar.append("⌂");
-						}
-						sign.setLine(1, bar.toString());
-						sign.setLine(2, bar.toString());
-						sign.setLine(3, target == null ? "" : target.getName());
-						sign.update();
-					}
-				} else {
-					setPrimarySign(null);
+			super.run();
+			if (!isSignIntact()) {
+				return;
+			}
+			BlockState bs = world.getBlockAt(sign).getState();
+			if (!(bs instanceof org.bukkit.block.Sign)) {
+				return;
+			}
+			org.bukkit.block.Sign sign = (org.bukkit.block.Sign)bs;
+			String lines[] = sign.getLines();
+			for (int i = 0; i < Math.min(2, lines.length); i++) {
+				String line = lines[i].trim();
+				if (line.length() == 0) {
+					continue;
+				}
+				if (i == 0) {
+					setName(line);
+				} else if (i == 1) {
+					setTarget(manager.get(line));
 				}
 			}
+			updater.now();
+		}
+
+	}
+
+	class SignUpdater extends SignSynchronizer {
+
+		long level = 0;
+
+		public void run() {
+			super.run();
+			if (!isSignIntact()) {
+				return;
+			}
+			BlockState bs = world.getBlockAt(sign).getState();
+			if (!(bs instanceof org.bukkit.block.Sign)) {
+				return;
+			}
+			org.bukkit.block.Sign sign = (org.bukkit.block.Sign)bs;
+			level = monitor.getLevel();
+			String chevrons = "";
+			for (int i = 0; i < level; i++) {
+				chevrons += "*";
+			}
+			setLine(sign, 0, name);
+			setLine(sign, 1, chevrons);
+			setLine(sign, 2, chevrons);
+			setLine(sign, 3, target == null ? "" : target.getName());
+			sign.update();
+		}
+
+		long getLevel() {
+			return level;
+		}
+
+		void setLine(org.bukkit.block.Sign sign, int line, String text) {
+			if (line < 0 || line > 3) {
+				return;
+			}
+			if (text == null) {
+				text = "";
+			}
+			if (text.length() > 15) {
+				text = text.substring(0, 15);
+			}
+			sign.setLine(line, text);
 		}
 
 	}

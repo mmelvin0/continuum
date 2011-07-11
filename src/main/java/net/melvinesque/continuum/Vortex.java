@@ -17,7 +17,6 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.scheduler.BukkitScheduler;
 
-
 public class Vortex {
 
 	Logger log = Logger.getLogger("Minecraft");
@@ -69,14 +68,14 @@ public class Vortex {
 		public void onPlayerMove(PlayerMoveEvent event) {
 			if (active && gate.target != null && gate.fillContains(event.getTo())) {
 				Player player = event.getPlayer();
-				Location to = gate.target.getArrivalLocation(player);
+				Location to = gate.target.getArrival(gate, player);
 				if (player.teleport(to)) {
+					event.setFrom(to);
+					event.setTo(to);
+					event.setCancelled(true);
 					World world = to.getWorld();
 					Chunk chunk = world.getChunkAt(to);
 					world.refreshChunk(chunk.getX(), chunk.getZ());
-					event.setFrom(to);
-					event.setTo(to);
-					event.setCancelled(true);					
 				}
 			}
 		}
@@ -86,7 +85,7 @@ public class Vortex {
 	class FlowControl extends BlockListener {
 
 		public void onBlockFromTo(BlockFromToEvent event) {
-			if (active && gate.getFill().contains(event.getBlock())) {
+			if (active && gate.fillContains(event.getBlock().getLocation())) {
 				event.setCancelled(true);
 			}
 		}
